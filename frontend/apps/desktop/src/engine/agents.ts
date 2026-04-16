@@ -13,24 +13,26 @@ import { STRATEGIES } from "./strategies";
 // human-readable operational line per agent.
 export interface AgentRegistryEntry {
   name: string;
+  title: string;     // short role label for compact chips
+  avatar: string;    // emoji avatar for the bot card
   specialty: AgentSpecialty;
 }
 
 export const AGENT_REGISTRY: AgentRegistryEntry[] = [
-  { name: "Architect", specialty: "architecture" },
-  { name: "Strategist", specialty: "strategy_taxonomy" },
-  { name: "Researcher", specialty: "research" },
-  { name: "Decision Engineer", specialty: "decision_engine" },
-  { name: "Risk Manager", specialty: "risk_sizing" },
-  { name: "Validation Analyst", specialty: "validation" },
-  { name: "Pine Engineer", specialty: "pine_generation" },
-  { name: "Execution Engineer", specialty: "execution_routing" },
-  { name: "Prop-Firm Execution Controller", specialty: "prop_firm_gating" },
-  { name: "Chart Systems Engineer", specialty: "chart_display" },
-  { name: "Agent State Supervisor", specialty: "agent_supervisor" },
-  { name: "Control Center Engineer", specialty: "control_center" },
-  { name: "Journal Analyst", specialty: "journal" },
-  { name: "QA Director", specialty: "qa" },
+  { name: "Archie",    title: "Architect",             avatar: "🏗️", specialty: "architecture" },
+  { name: "Strat",     title: "Strategist",            avatar: "📚", specialty: "strategy_taxonomy" },
+  { name: "Reggie",    title: "Researcher",            avatar: "🔬", specialty: "research" },
+  { name: "Dex",       title: "Decision Engineer",     avatar: "🧠", specialty: "decision_engine" },
+  { name: "Rhea",      title: "Risk Manager",          avatar: "⚖️", specialty: "risk_sizing" },
+  { name: "Val",       title: "Validation Analyst",    avatar: "🛡️", specialty: "validation" },
+  { name: "Pine",      title: "Pine Engineer",         avatar: "🌲", specialty: "pine_generation" },
+  { name: "Exa",       title: "Execution Engineer",    avatar: "📤", specialty: "execution_routing" },
+  { name: "Prospr",    title: "Prop-Firm Controller",  avatar: "🔐", specialty: "prop_firm_gating" },
+  { name: "Chartie",   title: "Chart Systems",         avatar: "📈", specialty: "chart_display" },
+  { name: "Sup",       title: "Agent Supervisor",      avatar: "👁️", specialty: "agent_supervisor" },
+  { name: "Ctrl",      title: "Control Center",        avatar: "🎛️", specialty: "control_center" },
+  { name: "Jourdan",   title: "Journal Analyst",       avatar: "📓", specialty: "journal" },
+  { name: "Qadi",      title: "QA Director",           avatar: "🧪", specialty: "qa" },
 ];
 
 export interface AgentContextInputs {
@@ -51,9 +53,11 @@ export function buildAgentStatuses(input: AgentContextInputs): AgentStatus[] {
 
   const build = (
     entry: AgentRegistryEntry,
-    fields: Omit<AgentStatus, "name" | "specialty" | "lastUpdate">,
+    fields: Omit<AgentStatus, "name" | "title" | "avatar" | "specialty" | "lastUpdate">,
   ): AgentStatus => ({
     name: entry.name,
+    title: entry.title,
+    avatar: entry.avatar,
     specialty: entry.specialty,
     lastUpdate: now,
     ...fields,

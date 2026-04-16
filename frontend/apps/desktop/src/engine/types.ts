@@ -186,7 +186,9 @@ export type AgentSpecialty =
   | "qa";
 
 export interface AgentStatus {
-  name: string;
+  name: string;              // cute nickname (e.g. "Dex")
+  title: string;             // role title (e.g. "Decision Engineer")
+  avatar: string;            // emoji avatar
   specialty: AgentSpecialty;
   state: AgentState;
   currentTask: string;
