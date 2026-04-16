@@ -71,3 +71,36 @@ Driven from the desktop UI:
 ## 10.10 Regression — QA Director
 
 After each phase, `npm run test` + `npm run typecheck` + `npm run build` must all pass.
+
+## 11. Control Center additions
+
+### 11.1 TradingView multi-timeframe display — Chart Systems Engineer
+
+- `tradingView.test.ts`
+  - every instrument maps to an `EXCHANGE:SYMBOL` string.
+  - the six supported intervals are `1, 5, 15, 60, 240, D`.
+  - default quad view carries 4 timeframes.
+  - chart context derives tp1 / tp2 / entry / stop / symbol / timeframes from the signal.
+  - embed URL contains the symbol, interval, and dark theme.
+- Manual: Control Center → change instrument → all four quad cells reload; switch to Focus → single chart + timeframe selector; level legend matches Decision panel values exactly; watch-only / blocked signals hide the overlay.
+
+### 11.2 AI Agent Status screen — Agent State Supervisor
+
+- `agents.test.ts`
+  - every required agent is present with a unique specialty.
+  - a status is generated for every registered agent.
+  - state transitions correctly when the kill switch is engaged (Control Center → escalated, Decision Engineer → blocked).
+  - agent group roll-up covers every agent exactly once.
+- Manual: Control Center → agent summaries are human-readable, no raw chain-of-thought; warnings badge appears under hard block.
+
+### 11.3 Prop-Firm Entry Control — Prop-Firm Execution Controller
+
+- `propFirm.test.ts`
+  - kill switch → `blocked` entry state + `routeReady=false`.
+  - approved / reduced-approved distinction preserved.
+  - final contracts always integer and ≤ quality cap.
+  - watch-only signals never become route-ready.
+  - compliance metrics all in `[0, 1]`.
+  - every `PropFirmEntryState` has a non-empty label.
+- Manual: approve → send flow on Control Center updates execution state, journal gets a new entry, state chip moves to `sent`. Switching instruments resets workflow to `draft`.
+

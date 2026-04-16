@@ -116,7 +116,8 @@ export function buildCandidate(
   const stopDistance = Math.abs(entry - stop);
   if (stopDistance <= 0) return null;
 
-  const target = side === "long" ? entry + meta.defaultTargetR * stopDistance : entry - meta.defaultTargetR * stopDistance;
+  const tp2 = side === "long" ? entry + meta.defaultTargetR * stopDistance : entry - meta.defaultTargetR * stopDistance;
+  const tp1 = entry + (tp2 - entry) * 0.5;
   const rMultiple = meta.defaultTargetR;
 
   const rawScore = scoreCandidate(meta.id, ctx, side);
@@ -128,7 +129,9 @@ export function buildCandidate(
     side,
     entry,
     stop,
-    target,
+    target: tp2,
+    tp1,
+    tp2,
     stopDistance,
     rMultiple,
     rawScore,

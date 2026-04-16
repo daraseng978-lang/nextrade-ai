@@ -1,12 +1,38 @@
 import { useWorkstation } from "../state/WorkstationContext";
 import { DesktopWorkbench } from "./DesktopWorkbench";
+import { ControlCenter } from "./ControlCenter";
 
 export function DesktopLayout() {
-  const { selected, killSwitch, setKillSwitch, quorumEnabled, setQuorumEnabled } = useWorkstation();
+  const {
+    selected,
+    killSwitch,
+    setKillSwitch,
+    quorumEnabled,
+    setQuorumEnabled,
+    workspaceMode,
+    setWorkspaceMode,
+  } = useWorkstation();
+
   return (
     <div className="workstation">
       <header className="topbar">
-        <h1>Nextrade AI — Desktop Workstation</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <h1>Nextrade AI</h1>
+          <div className="mode-switch">
+            <button
+              className={`mode-btn ${workspaceMode === "desk" ? "active" : ""}`}
+              onClick={() => setWorkspaceMode("desk")}
+            >
+              Desk
+            </button>
+            <button
+              className={`mode-btn ${workspaceMode === "control_center" ? "active" : ""}`}
+              onClick={() => setWorkspaceMode("control_center")}
+            >
+              Control Center
+            </button>
+          </div>
+        </div>
         <div className="status">
           <span className={`pill ${killSwitch ? "off" : "on"}`}>
             Kill Switch: {killSwitch ? "ENGAGED" : "OFF"}
@@ -24,11 +50,11 @@ export function DesktopLayout() {
           </button>
         </div>
       </header>
-      <DesktopWorkbench />
+
+      {workspaceMode === "desk" ? <DesktopWorkbench /> : <ControlCenter />}
+
       <footer className="statusbar">
-        <span>
-          Execution path: Nextrade AI → TradersPost → Tradovate
-        </span>
+        <span>Execution path: Nextrade AI → TradersPost → Tradovate</span>
         <span>
           {selected.state === "hard_blocked"
             ? `Hard block: ${selected.hardBlock.reason}`

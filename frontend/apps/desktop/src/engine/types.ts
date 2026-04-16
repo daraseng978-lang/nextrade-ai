@@ -75,7 +75,9 @@ export interface PlaybookCandidate {
   side: Side;
   entry: number;
   stop: number;
-  target: number;
+  target: number; // equivalent to tp2
+  tp1: number;    // partial scale-out (50% of full R target)
+  tp2: number;    // full R target (same as `target`)
   stopDistance: number;
   rMultiple: number;
   rawScore: number;       // 0..1
@@ -147,4 +149,107 @@ export interface TradersPostDispatch {
   takeProfit: { limitPrice: number };
   sentiment: "bullish" | "bearish";
   strategy: StrategyId;
+}
+
+// --- Control Center additions ---
+
+export type ExecutionState =
+  | "draft"
+  | "approved"
+  | "reduced_approved"
+  | "sent"
+  | "blocked"
+  | "watch_only";
+
+export type AgentState =
+  | "idle"
+  | "running"
+  | "waiting"
+  | "blocked"
+  | "completed"
+  | "escalated";
+
+export type AgentSpecialty =
+  | "architecture"
+  | "strategy_taxonomy"
+  | "research"
+  | "decision_engine"
+  | "risk_sizing"
+  | "validation"
+  | "pine_generation"
+  | "execution_routing"
+  | "control_center"
+  | "prop_firm_gating"
+  | "chart_display"
+  | "agent_supervisor"
+  | "journal"
+  | "qa";
+
+export interface AgentStatus {
+  name: string;
+  specialty: AgentSpecialty;
+  state: AgentState;
+  currentTask: string;
+  summary: string;
+  lastUpdate: string;
+  confidence?: number;        // 0..1
+  needsUserApproval: boolean;
+  warning?: string;
+}
+
+export type PropFirmEntryState =
+  | "draft"
+  | "approved"
+  | "reduced_approved"
+  | "blocked"
+  | "watch_only"
+  | "sent";
+
+export interface PropFirmCompliance {
+  dailyLossPressure: number;     // 0..1
+  drawdownPressure: number;      // 0..1
+  consistencyPressure: number;   // 0..1
+  evaluationCaution: number;     // 0..1
+  payoutStability: number;       // 0..1
+  passing: boolean;
+  blockers: string[];
+  cautions: string[];
+}
+
+export interface PropFirmControl {
+  rawScore: number;
+  adjustedScore: number;
+  calculatedContracts: number;
+  qualityCap: number;
+  finalContracts: number;
+  entryState: PropFirmEntryState;
+  blockReason?: string;
+  validationFactors: {
+    drawdownRisk: number;
+    payoutStability: number;
+    accountPressure: number;
+    consistencyPenalty: number;
+  };
+  compliance: PropFirmCompliance;
+  routeReady: boolean;
+}
+
+export interface ChartContext {
+  instrument: Instrument;
+  strategy: StrategyId;
+  regime: RegimeId;
+  side: Side;
+  entry: number;
+  stop: number;
+  tp1: number;
+  tp2: number;
+  tradingViewSymbol: string;
+  timeframes: TimeframeId[];
+}
+
+export type TimeframeId = "1" | "5" | "15" | "60" | "240" | "D";
+
+export interface TimeframeMeta {
+  id: TimeframeId;
+  label: string;
 }

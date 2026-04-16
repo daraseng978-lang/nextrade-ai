@@ -31,4 +31,13 @@ describe("pine generator", () => {
     expect(payload.quantity).toBe(sig.sizing.finalContracts);
     expect(payload.stopLoss.stopPrice).toBe(sig.candidate.stop);
   });
+
+  it("candidate carries a TP1 between entry and TP2", () => {
+    const sig = decide(ctxs[0], DEFAULT_ACCOUNT);
+    const { entry, tp1, tp2 } = sig.candidate;
+    const lo = Math.min(entry, tp2);
+    const hi = Math.max(entry, tp2);
+    expect(tp1).toBeGreaterThanOrEqual(lo);
+    expect(tp1).toBeLessThanOrEqual(hi);
+  });
 });

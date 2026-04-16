@@ -31,6 +31,8 @@ describe("sizing", () => {
     entry: 5100,
     stop: 5095,
     target: 5110,
+    tp1: 5105,
+    tp2: 5110,
     stopDistance: 5,
     rMultiple: 2,
     rawScore: 0.7,

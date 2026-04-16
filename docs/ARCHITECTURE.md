@@ -50,6 +50,25 @@ All panels read the single `SelectedSignal` from `WorkstationContext`. The
 scanner drives context; center and right panels always reflect the same
 selected trade. Normalized types live in `engine/types.ts` — no field drift.
 
+## Workspace modes
+
+The top bar switches between two layouts that share the same context:
+
+- **Desk** (`DesktopWorkbench`) — original 3-column trading workflow.
+- **Control Center** (`ControlCenter`) — supervisory layout with:
+  - top strip: system mode, kill switch, prop-firm state, selected instrument / strategy, quorum, journal count.
+  - left zone: Market Scanner + AI Agent Status.
+  - center zone: TradingView multi-timeframe workspace + Validation.
+  - right zone: Prop-Firm Entry Control + Journal.
+
+Execution workflow state (`draft → approved → sent`, or `blocked` / `watch_only`) lives in `WorkstationContext` so both layouts stay synchronized. Selecting a different instrument resets the workflow to `draft`.
+
+## Control Center modules
+
+- `panels/ChartWorkspace.tsx` — quad / focus TradingView display. Levels are overlaid as a legend card per chart (third-party iframe can't be injected into).
+- `panels/AgentStatusPanel.tsx` — groups agents by section (decision / risk / pine / execution / control / journal). Summaries are safe operational lines — no raw chain-of-thought.
+- `panels/PropFirmEntryPanel.tsx` — entry state machine with compliance meters (daily loss, drawdown, consistency, evaluation caution, payout stability).
+
 ## Hard-block policy
 
 Only four states fully block trading: major event lockout, operator kill
