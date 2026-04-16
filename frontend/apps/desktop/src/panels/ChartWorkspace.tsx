@@ -140,10 +140,17 @@ function ChartCell({
     chartUnavailable,
     markChartUnavailable,
     clearChartUnavailable,
+    chartFeedMode,
+    setChartFeedMode,
   } = useWorkstation();
 
   const cellKey = `${selected.candidate.instrument.symbol}:${timeframe}`;
-  const isUnavailable = chartUnavailable[cellKey] === symbol;
+  // Futures mode is always implicitly unavailable — the free embed
+  // iframe gates CME / NYMEX / COMEX data regardless of account type.
+  // Render the controlled fallback instead of loading a broken iframe.
+  const manuallyMarked = chartUnavailable[cellKey] === symbol;
+  const implicitlyUnavailable = chartFeedMode === "futures";
+  const isUnavailable = manuallyMarked || implicitlyUnavailable;
   const tfMeta = TIMEFRAMES.find((t) => t.id === timeframe)!;
   const frameId = `tv-${symbol.replace(/[^A-Z0-9]/gi, "_")}-${timeframe}`;
   const url = tradingViewEmbedUrl(symbol, timeframe, frameId);
@@ -182,7 +189,17 @@ function ChartCell({
           <ChartFallback
             attemptedSymbol={symbol}
             alternates={alternates}
-            onRetry={() => clearChartUnavailable(cellKey)}
+            reason={
+              implicitlyUnavailable
+                ? "Futures mode uses CME / NYMEX / COMEX symbols. The free TradingView embed gates this data even for Premium accounts."
+                : undefined
+            }
+            onRetry={
+              manuallyMarked ? () => clearChartUnavailable(cellKey) : undefined
+            }
+            onSwitchToProxy={
+              implicitlyUnavailable ? () => setChartFeedMode("proxy") : undefined
+            }
           />
         ) : (
           <>
@@ -213,15 +230,24 @@ function ChartCell({
 function ChartFallback({
   attemptedSymbol,
   alternates,
+  reason,
   onRetry,
+  onSwitchToProxy,
 }: {
   attemptedSymbol: string;
   alternates: string[];
-  onRetry: () => void;
+  reason?: string;
+  onRetry?: () => void;
+  onSwitchToProxy?: () => void;
 }) {
   return (
     <div className="chart-fallback">
       <div className="chart-fallback-title">Chart unavailable for current symbol mapping</div>
+      {reason && (
+        <div className="chart-fallback-detail" style={{ maxWidth: 420 }}>
+          <small style={{ color: "var(--warn)" }}>{reason}</small>
+        </div>
+      )}
       <div className="chart-fallback-detail">
         <small>Attempted symbol: <code>{attemptedSymbol}</code></small>
       </div>
@@ -238,8 +264,13 @@ function ChartFallback({
           </small>
         </div>
       )}
-      <div style={{ marginTop: 10 }}>
-        <button className="btn" onClick={onRetry}>Retry</button>
+      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+        {onSwitchToProxy && (
+          <button className="btn primary" onClick={onSwitchToProxy}>
+            Switch to Proxy
+          </button>
+        )}
+        {onRetry && <button className="btn" onClick={onRetry}>Retry</button>}
       </div>
     </div>
   );
