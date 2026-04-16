@@ -6,13 +6,15 @@ import type { InstrumentContext, RegimeId } from "./types";
 export function mockContexts(): InstrumentContext[] {
   return INSTRUMENTS.map((inst, idx) => {
     const seed = idx + 1;
+    // Base prices anchored to April 2026 market levels so scanner
+    // prints and chart overlays line up with real futures quotes.
     const basePrice =
-      inst.symbol === "MES" ? 5123.5 :
-      inst.symbol === "MNQ" ? 17894.0 :
-      inst.symbol === "MYM" ? 38120 :
-      inst.symbol === "M2K" ? 2034.8 :
-      inst.symbol === "MCL" ? 78.92 :
-      2340.4;
+      inst.symbol === "MES" ? 7010.25 :
+      inst.symbol === "MNQ" ? 26410.0 :
+      inst.symbol === "MYM" ? 48714.0 :
+      inst.symbol === "M2K" ? 2703.0 :
+      inst.symbol === "MCL" ? 67.02 :
+      4815.0; // MGC (Micro Gold)
 
     const atr = basePrice * 0.004 + seed * 0.3;
     const regime: RegimeId =
