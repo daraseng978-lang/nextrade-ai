@@ -47,6 +47,8 @@ export function decide(
       entry: ctx.price,
       stop: ctx.price,
       target: ctx.price,
+      tp1: ctx.price,
+      tp2: ctx.price,
       stopDistance: 0,
       rMultiple: 0,
       rawScore: 0,

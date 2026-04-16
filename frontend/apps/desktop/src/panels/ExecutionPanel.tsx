@@ -5,11 +5,8 @@ import { formatExecution } from "../engine/executionFormatter";
 type Tab = "telegram" | "kv" | "json";
 
 export function ExecutionPanel() {
-  const { selected, logExecution } = useWorkstation();
+  const { selected, executionState, approve, send } = useWorkstation();
   const [tab, setTab] = useState<Tab>("telegram");
-  const [state, setState] = useState<"draft" | "approved" | "sent" | "watch_only">(
-    selected.sizing.finalContracts === 0 ? "watch_only" : "draft",
-  );
   const outputs = useMemo(() => formatExecution(selected), [selected]);
 
   const body =
@@ -17,23 +14,8 @@ export function ExecutionPanel() {
     tab === "kv" ? outputs.keyValue :
     outputs.json;
 
-  const canSend = state !== "watch_only" && selected.state !== "hard_blocked";
-
-  const approve = () => setState("approved");
-  const send = () => {
-    setState("sent");
-    logExecution({
-      id: selected.id,
-      timestamp: new Date().toISOString(),
-      symbol: selected.candidate.instrument.symbol,
-      strategy: selected.candidate.strategy,
-      regime: selected.context.regime,
-      side: selected.candidate.side,
-      contracts: selected.sizing.finalContracts,
-      adjustedScore: selected.adjustedScore,
-      state: selected.state,
-    });
-  };
+  const canApprove = executionState === "draft";
+  const canSend = executionState === "approved" || executionState === "reduced_approved";
 
   return (
     <section className="panel">
@@ -57,19 +39,15 @@ export function ExecutionPanel() {
         {body}
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <button className="btn" onClick={approve} disabled={!canSend || state !== "draft"}>
+        <button className="btn" onClick={approve} disabled={!canApprove}>
           Approve
         </button>
-        <button
-          className="btn primary"
-          onClick={send}
-          disabled={!canSend || state !== "approved"}
-        >
+        <button className="btn primary" onClick={send} disabled={!canSend}>
           Send to TradersPost
         </button>
         <span style={{ marginLeft: "auto" }}>
           <small>
-            State: <strong>{state.replace("_", " ")}</strong>
+            State: <strong>{executionState.replace("_", " ")}</strong>
           </small>
         </span>
       </div>
