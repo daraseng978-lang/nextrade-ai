@@ -4,6 +4,7 @@ import {
   DEFAULT_QUAD_TIMEFRAMES,
   TIMEFRAMES,
   tradingViewEmbedUrl,
+  tradingViewProxyLabel,
   tradingViewSymbol,
 } from "../engine/tradingView";
 import type { TimeframeId } from "../engine/types";
@@ -21,9 +22,15 @@ export function ChartWorkspace() {
     setFocusTimeframe,
     chartTimeframes,
     setChartTimeframes,
+    chartFeedMode,
+    setChartFeedMode,
   } = useWorkstation();
 
-  const symbol = tradingViewSymbol(selected.candidate.instrument);
+  const symbol = tradingViewSymbol(selected.candidate.instrument, chartFeedMode);
+  const proxyLabel =
+    chartFeedMode === "proxy"
+      ? tradingViewProxyLabel(selected.candidate.instrument)
+      : undefined;
   const tradableOverlay =
     selected.state !== "hard_blocked" &&
     selected.state !== "stand_aside" &&
@@ -50,11 +57,25 @@ export function ChartWorkspace() {
       <div className="chart-header">
         <div>
           <strong>{symbol}</strong>
+          {proxyLabel && (
+            <small style={{ marginLeft: 8, color: "var(--warn)" }}>
+              {proxyLabel}
+            </small>
+          )}
           <small style={{ marginLeft: 8, color: "var(--muted)" }}>
             {header.strategy} · {header.regime}
           </small>
         </div>
         <div className="chart-header-actions">
+          <span className={`tab ${chartFeedMode === "proxy" ? "active" : ""}`}
+            onClick={() => setChartFeedMode("proxy")}
+            title="Free TradingView embed — index / commodity proxy"
+          >Proxy</span>
+          <span className={`tab ${chartFeedMode === "futures" ? "active" : ""}`}
+            onClick={() => setChartFeedMode("futures")}
+            title="CME futures symbol — requires TradingView paid data in the embed"
+          >Futures</span>
+          <span style={{ width: 10 }} />
           <span className={`tab ${chartViewMode === "quad" ? "active" : ""}`}
             onClick={() => setChartViewMode("quad")}>Quad</span>
           <span className={`tab ${chartViewMode === "focus" ? "active" : ""}`}
@@ -98,12 +119,14 @@ export function ChartWorkspace() {
       <div className="chart-linked">
         <small>
           🔗 Linked mode — instrument <strong>{symbol}</strong> · side{" "}
-          <strong>{selected.candidate.side.toUpperCase()}</strong>. Level overlays
-          source:{" "}
-          {tradableOverlay
-            ? "selected trade"
-            : "hidden (watch-only / blocked)"}
+          <strong>{selected.candidate.side.toUpperCase()}</strong> · feed{" "}
+          <strong>{chartFeedMode === "proxy" ? "proxy" : "futures"}</strong>.
+          Level overlays source:{" "}
+          {tradableOverlay ? "selected trade" : "hidden (watch-only / blocked)"}
           .
+          {chartFeedMode === "futures" && (
+            <> TradingView may show "Symbol only available on TradingView" because CME data is gated inside the free embed iframe, even for paid accounts.</>
+          )}
         </small>
       </div>
     </section>

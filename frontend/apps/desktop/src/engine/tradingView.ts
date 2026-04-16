@@ -10,7 +10,24 @@ import type {
 // Note: TradingView iframe is a sandboxed third-party widget — we cannot
 // draw levels inside it from our domain. The UI renders level overlays as
 // a legend card alongside each chart, sourced from the same ChartContext.
-const SYMBOL_MAP: Record<string, string> = {
+//
+// The free TradingView embed does not render CME / NYMEX / COMEX futures
+// (it shows "Symbol only available on TradingView"). We use the TVC index
+// / commodity proxy that correlates closely with each micro future and is
+// rendered for free embeds. The `PROXY_DISCLOSURE` flag is exposed so the
+// UI can surface that the chart is a proxy, not the actual futures feed.
+export type ChartFeedMode = "proxy" | "futures";
+
+const PROXY_SYMBOL_MAP: Record<string, { symbol: string; proxyLabel: string }> = {
+  MES: { symbol: "TVC:SPX", proxyLabel: "S&P 500 Index (proxy for MES)" },
+  MNQ: { symbol: "TVC:NDX", proxyLabel: "Nasdaq 100 Index (proxy for MNQ)" },
+  MYM: { symbol: "TVC:DJI", proxyLabel: "Dow Jones (proxy for MYM)" },
+  M2K: { symbol: "TVC:RUT", proxyLabel: "Russell 2000 Index (proxy for M2K)" },
+  MCL: { symbol: "TVC:USOIL", proxyLabel: "WTI Crude (proxy for MCL)" },
+  MGC: { symbol: "TVC:GOLD", proxyLabel: "Gold (proxy for MGC)" },
+};
+
+const FUTURES_SYMBOL_MAP: Record<string, string> = {
   MES: "CME_MINI:MES1!",
   MNQ: "CME_MINI:MNQ1!",
   MYM: "CBOT_MINI:MYM1!",
@@ -19,8 +36,18 @@ const SYMBOL_MAP: Record<string, string> = {
   MGC: "COMEX:MGC1!",
 };
 
-export function tradingViewSymbol(instrument: Instrument): string {
-  return SYMBOL_MAP[instrument.symbol] ?? instrument.symbol;
+export function tradingViewSymbol(
+  instrument: Instrument,
+  mode: ChartFeedMode = "proxy",
+): string {
+  if (mode === "futures") {
+    return FUTURES_SYMBOL_MAP[instrument.symbol] ?? instrument.symbol;
+  }
+  return PROXY_SYMBOL_MAP[instrument.symbol]?.symbol ?? instrument.symbol;
+}
+
+export function tradingViewProxyLabel(instrument: Instrument): string | undefined {
+  return PROXY_SYMBOL_MAP[instrument.symbol]?.proxyLabel;
 }
 
 export const TIMEFRAMES: TimeframeMeta[] = [

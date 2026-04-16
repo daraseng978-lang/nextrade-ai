@@ -12,11 +12,26 @@ import { DEFAULT_ACCOUNT } from "../engine/sizing";
 import { mockContexts } from "../engine/mockData";
 
 describe("trading view symbol map", () => {
-  it("maps every instrument to an EXCHANGE:SYMBOL string", () => {
+  it("maps every instrument to an EXCHANGE:SYMBOL string (proxy default)", () => {
     for (const inst of INSTRUMENTS) {
       const s = tradingViewSymbol(inst);
       expect(s).toMatch(/^[A-Z_]+:[A-Z0-9!]+$/);
     }
+  });
+
+  it("proxy mode returns TVC:* symbols for every instrument", () => {
+    for (const inst of INSTRUMENTS) {
+      expect(tradingViewSymbol(inst, "proxy")).toMatch(/^TVC:/);
+    }
+  });
+
+  it("futures mode returns the real CME/NYMEX/COMEX symbols", () => {
+    expect(tradingViewSymbol(INSTRUMENTS.find((i) => i.symbol === "MES")!, "futures"))
+      .toBe("CME_MINI:MES1!");
+    expect(tradingViewSymbol(INSTRUMENTS.find((i) => i.symbol === "MCL")!, "futures"))
+      .toBe("NYMEX:MCL1!");
+    expect(tradingViewSymbol(INSTRUMENTS.find((i) => i.symbol === "MGC")!, "futures"))
+      .toBe("COMEX:MGC1!");
   });
 
   it("timeframes cover 1m..1D", () => {
