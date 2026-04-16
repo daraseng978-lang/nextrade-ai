@@ -40,7 +40,7 @@ export function AgentStatusPanel() {
       <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
         {needsApproval.length > 0 && (
           <span className="badge reduced">
-            Needs approval: {needsApproval.map((a) => a.name).join(", ")}
+            Needs approval: {needsApproval.map((a) => a.title).join(", ")}
           </span>
         )}
         {warnings.length > 0 && (
@@ -67,9 +67,12 @@ function AgentRow({ agent }: { agent: AgentStatus }) {
   return (
     <div className="agent-row">
       <div className="agent-row-main">
-        <div>
-          <strong>{agent.name}</strong>
-          <span className="agent-specialty"> · {agent.specialty.replace(/_/g, " ")}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="agent-avatar" aria-hidden>{agent.avatar}</span>
+          <div>
+            <strong>{agent.name}</strong>
+            <span className="agent-specialty"> · {agent.title}</span>
+          </div>
         </div>
         <StateChip state={agent.state} />
       </div>

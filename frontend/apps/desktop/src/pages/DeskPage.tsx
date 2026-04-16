@@ -4,22 +4,27 @@ import { ExecutionPanel } from "../panels/ExecutionPanel";
 import { CompactValidationPanel } from "../panels/CompactValidationPanel";
 import { useWorkstation } from "../state/WorkstationContext";
 import { QuorumPanel } from "../panels/QuorumPanel";
+import { AgentDock } from "../panels/AgentDock";
 
 // Desk = primary trading page. Best trade · why · what to do.
-// No agent board, no chart workspace, no audit trail.
+// Agent status shown as a compact bot dock at the bottom; the full
+// agent board lives on Control Center.
 export function DeskPage() {
   const { quorumEnabled } = useWorkstation();
   return (
-    <div className="workbench">
-      <aside className="column left"><MarketScannerPanel /></aside>
-      <main className="column">
-        <DecisionPanel />
-        <ExecutionPanel />
-        {quorumEnabled && <QuorumPanel />}
-      </main>
-      <aside className="column right">
-        <CompactValidationPanel />
-      </aside>
+    <div className="desk-layout">
+      <div className="workbench">
+        <aside className="column left"><MarketScannerPanel /></aside>
+        <main className="column">
+          <DecisionPanel />
+          <ExecutionPanel />
+          {quorumEnabled && <QuorumPanel />}
+        </main>
+        <aside className="column right">
+          <CompactValidationPanel />
+        </aside>
+      </div>
+      <AgentDock />
     </div>
   );
 }

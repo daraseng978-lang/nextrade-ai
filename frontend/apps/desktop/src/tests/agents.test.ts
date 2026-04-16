@@ -22,24 +22,35 @@ function buildInput(killSwitch = false) {
 }
 
 describe("agent registry", () => {
-  it("contains all required agents", () => {
-    const names = AGENT_REGISTRY.map((a) => a.name);
-    expect(names).toContain("Decision Engineer");
-    expect(names).toContain("Risk Manager");
-    expect(names).toContain("Validation Analyst");
-    expect(names).toContain("Pine Engineer");
-    expect(names).toContain("Execution Engineer");
-    expect(names).toContain("Prop-Firm Execution Controller");
-    expect(names).toContain("Chart Systems Engineer");
-    expect(names).toContain("Agent State Supervisor");
-    expect(names).toContain("Control Center Engineer");
-    expect(names).toContain("Journal Analyst");
-    expect(names).toContain("QA Director");
+  it("contains every required specialty", () => {
+    const specialties = AGENT_REGISTRY.map((a) => a.specialty);
+    const required = [
+      "decision_engine",
+      "risk_sizing",
+      "validation",
+      "pine_generation",
+      "execution_routing",
+      "prop_firm_gating",
+      "chart_display",
+      "agent_supervisor",
+      "control_center",
+      "journal",
+      "qa",
+    ];
+    for (const s of required) expect(specialties).toContain(s);
   });
 
   it("each agent has exactly one specialty", () => {
     const specialties = AGENT_REGISTRY.map((a) => a.specialty);
     expect(new Set(specialties).size).toBe(specialties.length);
+  });
+
+  it("each agent has a cute name, a role title, and an avatar emoji", () => {
+    for (const a of AGENT_REGISTRY) {
+      expect(a.name.length).toBeGreaterThan(0);
+      expect(a.title.length).toBeGreaterThan(0);
+      expect(a.avatar.length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -57,24 +68,25 @@ describe("agent statuses", () => {
     }
   });
 
-  it("decision engineer summary references the selected strategy", () => {
+  it("decision engineer summary never leaks chain-of-thought", () => {
     const input = buildInput();
     const statuses = buildAgentStatuses(input);
-    const de = statuses.find((s) => s.name === "Decision Engineer")!;
-    expect(de.summary.toLowerCase()).not.toContain("thinking:"); // no chain-of-thought leak
+    const de = statuses.find((s) => s.specialty === "decision_engine")!;
+    expect(de.summary.toLowerCase()).not.toContain("thinking:");
     expect(de.currentTask.length).toBeGreaterThan(0);
+    expect(de.title).toBe("Decision Engineer");
   });
 
   it("kill switch escalates the control center agent", () => {
     const statuses = buildAgentStatuses(buildInput(true));
-    const cc = statuses.find((s) => s.name === "Control Center Engineer")!;
+    const cc = statuses.find((s) => s.specialty === "control_center")!;
     expect(cc.state).toBe("escalated");
     expect(cc.warning).toBeDefined();
   });
 
   it("hard block pushes the decision engineer to blocked state", () => {
     const statuses = buildAgentStatuses(buildInput(true));
-    const de = statuses.find((s) => s.name === "Decision Engineer")!;
+    const de = statuses.find((s) => s.specialty === "decision_engine")!;
     expect(de.state).toBe("blocked");
   });
 

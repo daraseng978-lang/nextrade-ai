@@ -438,3 +438,120 @@ table.kv td.k { color: var(--muted); width: 46%; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
 }
+
+/* ---------- Desk layout (three columns + agent dock) ---------- */
+.desk-layout {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+}
+.desk-layout .workbench { overflow: hidden; }
+
+/* ---------- Agent avatars (used in AgentStatusPanel rows) ---------- */
+.agent-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  font-size: 16px;
+}
+
+/* ---------- Agent Dock (Desk bottom strip) ---------- */
+.agent-dock {
+  border-top: 1px solid var(--line);
+  background: var(--bg-1);
+  padding: 8px 12px 10px;
+}
+.agent-dock-header {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.agent-dock-header strong { color: var(--text); }
+.agent-dock-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.agent-dock-strip::-webkit-scrollbar { height: 6px; }
+.agent-dock-strip::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 3px;
+}
+
+.bot-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 160px;
+  flex: 0 0 auto;
+  cursor: default;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+.bot-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+.bot-chip.ok { border-left: 3px solid var(--good); }
+.bot-chip.done { border-left: 3px solid var(--watch); }
+.bot-chip.wait { border-left: 3px solid var(--reduced); }
+.bot-chip.bad { border-left: 3px solid var(--danger); }
+.bot-chip.idle { border-left: 3px solid var(--muted); }
+
+.bot-chip-avatar {
+  font-size: 22px;
+  line-height: 1;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.bot-chip-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bot-chip-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.bot-chip-title {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bot-chip-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.bot-chip-dot.ok { background: var(--good); box-shadow: 0 0 6px var(--good); }
+.bot-chip-dot.done { background: var(--watch); }
+.bot-chip-dot.wait { background: var(--reduced); }
+.bot-chip-dot.bad { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+.bot-chip-dot.idle { background: var(--muted); }
