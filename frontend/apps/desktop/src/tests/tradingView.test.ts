@@ -20,9 +20,10 @@ describe("trading view symbol map", () => {
     }
   });
 
-  it("proxy mode returns TVC:* symbols for every instrument", () => {
+  it("proxy mode returns an ETF symbol for every instrument", () => {
     for (const inst of INSTRUMENTS) {
-      expect(tradingViewSymbol(inst, "proxy")).toMatch(/^TVC:/);
+      const sym = tradingViewSymbol(inst, "proxy");
+      expect(sym).toMatch(/^(AMEX|NASDAQ):[A-Z]+$/);
     }
   });
 

@@ -18,13 +18,19 @@ import type {
 // UI can surface that the chart is a proxy, not the actual futures feed.
 export type ChartFeedMode = "proxy" | "futures";
 
+// The most reliable free-embed proxies are US-listed ETFs — they are
+// universally available with free delayed data on the TradingView
+// widget regardless of the viewer's account. TVC:* index symbols
+// worked for some users but surfaced "Symbol only available" modals
+// on other accounts, so we swap to ETFs as the default proxy and
+// keep index / TVC variants in the alternate list as fallbacks.
 const PROXY_SYMBOL_MAP: Record<string, { symbol: string; proxyLabel: string }> = {
-  MES: { symbol: "TVC:SPX", proxyLabel: "S&P 500 Index (proxy for MES)" },
-  MNQ: { symbol: "TVC:NDX", proxyLabel: "Nasdaq 100 Index (proxy for MNQ)" },
-  MYM: { symbol: "TVC:DJI", proxyLabel: "Dow Jones (proxy for MYM)" },
-  M2K: { symbol: "TVC:RUT", proxyLabel: "Russell 2000 Index (proxy for M2K)" },
-  MCL: { symbol: "TVC:USOIL", proxyLabel: "WTI Crude (proxy for MCL)" },
-  MGC: { symbol: "TVC:GOLD", proxyLabel: "Gold (proxy for MGC)" },
+  MES: { symbol: "AMEX:SPY", proxyLabel: "SPY ETF (proxy for MES)" },
+  MNQ: { symbol: "NASDAQ:QQQ", proxyLabel: "QQQ ETF (proxy for MNQ)" },
+  MYM: { symbol: "AMEX:DIA", proxyLabel: "DIA ETF (proxy for MYM)" },
+  M2K: { symbol: "AMEX:IWM", proxyLabel: "IWM ETF (proxy for M2K)" },
+  MCL: { symbol: "AMEX:USO", proxyLabel: "USO ETF (proxy for MCL)" },
+  MGC: { symbol: "AMEX:GLD", proxyLabel: "GLD ETF (proxy for MGC)" },
 };
 
 const FUTURES_SYMBOL_MAP: Record<string, string> = {
@@ -53,12 +59,12 @@ export function tradingViewProxyLabel(instrument: Instrument): string | undefine
 // Ordered alternate-symbol list per instrument, used by the chart
 // fallback when the primary symbol cannot render.
 const ALTERNATES: Record<string, string[]> = {
-  MES: ["TVC:SPX", "AMEX:SPY", "FX_IDC:SPXUSD"],
-  MNQ: ["TVC:NDX", "NASDAQ:QQQ", "FX_IDC:NDXUSD"],
-  MYM: ["TVC:DJI", "AMEX:DIA"],
-  M2K: ["TVC:RUT", "AMEX:IWM"],
-  MCL: ["TVC:USOIL", "AMEX:USO"],
-  MGC: ["TVC:GOLD", "AMEX:GLD", "OANDA:XAUUSD"],
+  MES: ["AMEX:SPY", "TVC:SPX", "FX_IDC:SPXUSD", "CAPITALCOM:US500"],
+  MNQ: ["NASDAQ:QQQ", "TVC:NDX", "FX_IDC:NDXUSD", "CAPITALCOM:US100"],
+  MYM: ["AMEX:DIA", "TVC:DJI", "CAPITALCOM:US30"],
+  M2K: ["AMEX:IWM", "TVC:RUT", "CAPITALCOM:US2000"],
+  MCL: ["AMEX:USO", "TVC:USOIL", "NYMEX:CL1!"],
+  MGC: ["AMEX:GLD", "TVC:GOLD", "OANDA:XAUUSD", "COMEX:GC1!"],
 };
 
 export function tradingViewAlternates(
