@@ -1,60 +1,54 @@
 import { useWorkstation } from "../state/WorkstationContext";
-import { DesktopWorkbench } from "./DesktopWorkbench";
-import { ControlCenter } from "./ControlCenter";
+import { PAGES } from "../engine/pages";
+import { DeskPage } from "../pages/DeskPage";
+import { ChartsPage } from "../pages/ChartsPage";
+import { ControlCenterPage } from "../pages/ControlCenterPage";
+import { PineStudioPage } from "../pages/PineStudioPage";
+import { JournalPage } from "../pages/JournalPage";
+import { SettingsPage } from "../pages/SettingsPage";
 
 export function DesktopLayout() {
-  const {
-    selected,
-    killSwitch,
-    setKillSwitch,
-    quorumEnabled,
-    setQuorumEnabled,
-    workspaceMode,
-    setWorkspaceMode,
-  } = useWorkstation();
+  const { selected, killSwitch, page, setPage } = useWorkstation();
+
+  const ActivePage =
+    page === "desk" ? <DeskPage /> :
+    page === "charts" ? <ChartsPage /> :
+    page === "control_center" ? <ControlCenterPage /> :
+    page === "pine_studio" ? <PineStudioPage /> :
+    page === "journal" ? <JournalPage /> :
+    <SettingsPage />;
+
+  const activeMeta = PAGES.find((p) => p.id === page)!;
 
   return (
     <div className="workstation">
       <header className="topbar">
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <h1>Nextrade AI</h1>
-          <div className="mode-switch">
-            <button
-              className={`mode-btn ${workspaceMode === "desk" ? "active" : ""}`}
-              onClick={() => setWorkspaceMode("desk")}
-            >
-              Desk
-            </button>
-            <button
-              className={`mode-btn ${workspaceMode === "control_center" ? "active" : ""}`}
-              onClick={() => setWorkspaceMode("control_center")}
-            >
-              Control Center
-            </button>
-          </div>
+          <nav className="page-tabs">
+            {PAGES.map((p) => (
+              <button
+                key={p.id}
+                className={`page-tab ${page === p.id ? "active" : ""}`}
+                onClick={() => setPage(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </nav>
         </div>
         <div className="status">
           <span className={`pill ${killSwitch ? "off" : "on"}`}>
             Kill Switch: {killSwitch ? "ENGAGED" : "OFF"}
           </span>
-          <span className="pill">Quorum: {quorumEnabled ? "ON" : "OFF"}</span>
           <span className="pill">Selected: {selected.candidate.instrument.symbol}</span>
-          <button className="btn" onClick={() => setQuorumEnabled(!quorumEnabled)}>
-            Toggle Quorum
-          </button>
-          <button
-            className={`btn ${killSwitch ? "danger" : ""}`}
-            onClick={() => setKillSwitch(!killSwitch)}
-          >
-            {killSwitch ? "Disarm" : "Arm Kill Switch"}
-          </button>
         </div>
       </header>
 
-      {workspaceMode === "desk" ? <DesktopWorkbench /> : <ControlCenter />}
+      {ActivePage}
 
       <footer className="statusbar">
-        <span>Execution path: Nextrade AI → TradersPost → Tradovate</span>
+        <span>{activeMeta.role}</span>
         <span>
           {selected.state === "hard_blocked"
             ? `Hard block: ${selected.hardBlock.reason}`

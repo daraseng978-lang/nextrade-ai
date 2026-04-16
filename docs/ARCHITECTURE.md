@@ -50,24 +50,33 @@ All panels read the single `SelectedSignal` from `WorkstationContext`. The
 scanner drives context; center and right panels always reflect the same
 selected trade. Normalized types live in `engine/types.ts` — no field drift.
 
-## Workspace modes
+## Page model (six pages)
 
-The top bar switches between two layouts that share the same context:
+The top bar exposes six top-level pages backed by `WorkstationContext.page`. Each page has one role and does not duplicate other pages.
 
-- **Desk** (`DesktopWorkbench`) — original 3-column trading workflow.
-- **Control Center** (`ControlCenter`) — supervisory layout with:
-  - top strip: system mode, kill switch, prop-firm state, selected instrument / strategy, quorum, journal count.
-  - left zone: Market Scanner + AI Agent Status.
-  - center zone: TradingView multi-timeframe workspace + Validation.
-  - right zone: Prop-Firm Entry Control + Journal.
+| Page id | Component | Role |
+|---|---|---|
+| `desk` | `pages/DeskPage.tsx` | Scanner · best trade · runner-ups · compact validation · execution composer. |
+| `charts` | `pages/ChartsPage.tsx` | Scanner · multi-timeframe TradingView workspace with per-cell fallback. |
+| `control_center` | `pages/ControlCenterPage.tsx` | System mode · kill switch · quorum · approval queue · agents · prop-firm readiness · audit trail · route health. |
+| `pine_studio` | `pages/PineStudioPage.tsx` | Selected playbook context · Pine v5 generator · alert payload. |
+| `journal` | `pages/JournalPage.tsx` | Performance roll-up · trade table. |
+| `settings` | `pages/SettingsPage.tsx` | Account · risk · supervision · chart feed default · integration status. |
 
-Execution workflow state (`draft → approved → sent`, or `blocked` / `watch_only`) lives in `WorkstationContext` so both layouts stay synchronized. Selecting a different instrument resets the workflow to `draft`.
+Execution workflow state (`draft → approved → sent`, or `blocked` / `watch_only`) lives in `WorkstationContext`. Switching pages preserves the workflow; switching instruments resets it to `draft`.
 
 ## Control Center modules
 
-- `panels/ChartWorkspace.tsx` — quad / focus TradingView display. Levels are overlaid as a legend card per chart (third-party iframe can't be injected into).
 - `panels/AgentStatusPanel.tsx` — groups agents by section (decision / risk / pine / execution / control / journal). Summaries are safe operational lines — no raw chain-of-thought.
 - `panels/PropFirmEntryPanel.tsx` — entry state machine with compliance meters (daily loss, drawdown, consistency, evaluation caution, payout stability).
+- `panels/ApprovalQueuePanel.tsx` — operator gate (approve → send) plus recent sends.
+- `panels/RouteHealthPanel.tsx` — TradersPost / Tradovate route status (mock today; degrades when kill switch engages).
+- `panels/AuditTrailPanel.tsx` — recent operator + system events (instrument selection, approvals, sends, kill switch toggles, hard blocks, chart unavailable / retried).
+
+## Charts module
+
+- `panels/ChartWorkspace.tsx` — quad / focus TradingView embed. Per-cell controlled fallback on failure: shows attempted symbol, alternate-symbol suggestions, and a Retry button. Never spams modals.
+- `engine/tradingView.ts` — proxy / futures symbol map, per-instrument alternate list, embed URL builder.
 
 ## Hard-block policy
 

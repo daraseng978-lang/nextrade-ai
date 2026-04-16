@@ -253,3 +253,49 @@ export interface TimeframeMeta {
   id: TimeframeId;
   label: string;
 }
+
+// --- Workstation page model ---
+
+export type WorkstationPage =
+  | "desk"
+  | "charts"
+  | "control_center"
+  | "pine_studio"
+  | "journal"
+  | "settings";
+
+export interface PageMeta {
+  id: WorkstationPage;
+  label: string;
+  role: string;
+}
+
+// --- Operational events / audit trail ---
+
+export type EventKind =
+  | "instrument_selected"
+  | "approved"
+  | "sent"
+  | "kill_switch_armed"
+  | "kill_switch_disarmed"
+  | "quorum_toggled"
+  | "hard_block_triggered"
+  | "chart_unavailable"
+  | "chart_retried";
+
+export interface EventEntry {
+  id: string;
+  kind: EventKind;
+  timestamp: string;
+  symbol?: string;
+  detail: string;
+}
+
+// --- Route health (TradersPost / Tradovate mock) ---
+
+export type RouteStatus = "ok" | "degraded" | "down";
+
+export interface RouteHealth {
+  tradersPost: { status: RouteStatus; lastCheck: string; note: string };
+  tradovate: { status: RouteStatus; lastCheck: string; note: string };
+}

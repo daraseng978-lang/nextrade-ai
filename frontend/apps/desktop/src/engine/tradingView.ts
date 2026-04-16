@@ -50,6 +50,25 @@ export function tradingViewProxyLabel(instrument: Instrument): string | undefine
   return PROXY_SYMBOL_MAP[instrument.symbol]?.proxyLabel;
 }
 
+// Ordered alternate-symbol list per instrument, used by the chart
+// fallback when the primary symbol cannot render.
+const ALTERNATES: Record<string, string[]> = {
+  MES: ["TVC:SPX", "AMEX:SPY", "FX_IDC:SPXUSD"],
+  MNQ: ["TVC:NDX", "NASDAQ:QQQ", "FX_IDC:NDXUSD"],
+  MYM: ["TVC:DJI", "AMEX:DIA"],
+  M2K: ["TVC:RUT", "AMEX:IWM"],
+  MCL: ["TVC:USOIL", "AMEX:USO"],
+  MGC: ["TVC:GOLD", "AMEX:GLD", "OANDA:XAUUSD"],
+};
+
+export function tradingViewAlternates(
+  instrument: Instrument,
+  current: string,
+): string[] {
+  const list = ALTERNATES[instrument.symbol] ?? [];
+  return list.filter((s) => s !== current);
+}
+
 export const TIMEFRAMES: TimeframeMeta[] = [
   { id: "1", label: "1m" },
   { id: "5", label: "5m" },
