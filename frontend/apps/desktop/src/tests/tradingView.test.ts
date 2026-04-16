@@ -20,11 +20,18 @@ describe("trading view symbol map", () => {
     }
   });
 
-  it("proxy mode returns an ETF symbol for every instrument", () => {
+  it("proxy mode returns an EXCHANGE:SYMBOL string for every instrument", () => {
     for (const inst of INSTRUMENTS) {
       const sym = tradingViewSymbol(inst, "proxy");
-      expect(sym).toMatch(/^(AMEX|NASDAQ):[A-Z]+$/);
+      expect(sym).toMatch(/^[A-Z_]+:[A-Z0-9_]+$/);
     }
+  });
+
+  it("equity index instruments resolve to a Capital.com CFD by default", () => {
+    const mes = INSTRUMENTS.find((i) => i.symbol === "MES")!;
+    expect(tradingViewSymbol(mes, "proxy")).toBe("CAPITALCOM:US500");
+    const mnq = INSTRUMENTS.find((i) => i.symbol === "MNQ")!;
+    expect(tradingViewSymbol(mnq, "proxy")).toBe("CAPITALCOM:US100");
   });
 
   it("futures mode returns the real CME/NYMEX/COMEX symbols", () => {

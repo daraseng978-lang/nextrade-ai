@@ -18,19 +18,19 @@ import type {
 // UI can surface that the chart is a proxy, not the actual futures feed.
 export type ChartFeedMode = "proxy" | "futures";
 
-// The most reliable free-embed proxies are US-listed ETFs — they are
-// universally available with free delayed data on the TradingView
-// widget regardless of the viewer's account. TVC:* index symbols
-// worked for some users but surfaced "Symbol only available" modals
-// on other accounts, so we swap to ETFs as the default proxy and
-// keep index / TVC variants in the alternate list as fallbacks.
+// Default proxies are index / commodity CFDs that price at (or very
+// near) the same level as the underlying futures, so entry / stop /
+// TP overlays from the decision engine line up with the chart scale.
+// Capital.com index CFDs render reliably on the free TradingView
+// widget embed; ETF equivalents are retained as alternates in case
+// the primary symbol is blocked in a particular account.
 const PROXY_SYMBOL_MAP: Record<string, { symbol: string; proxyLabel: string }> = {
-  MES: { symbol: "AMEX:SPY", proxyLabel: "SPY ETF (proxy for MES)" },
-  MNQ: { symbol: "NASDAQ:QQQ", proxyLabel: "QQQ ETF (proxy for MNQ)" },
-  MYM: { symbol: "AMEX:DIA", proxyLabel: "DIA ETF (proxy for MYM)" },
-  M2K: { symbol: "AMEX:IWM", proxyLabel: "IWM ETF (proxy for M2K)" },
-  MCL: { symbol: "AMEX:USO", proxyLabel: "USO ETF (proxy for MCL)" },
-  MGC: { symbol: "AMEX:GLD", proxyLabel: "GLD ETF (proxy for MGC)" },
+  MES: { symbol: "CAPITALCOM:US500", proxyLabel: "S&P 500 CFD (US500) — matches MES price scale" },
+  MNQ: { symbol: "CAPITALCOM:US100", proxyLabel: "Nasdaq 100 CFD (US100) — matches MNQ price scale" },
+  MYM: { symbol: "CAPITALCOM:US30", proxyLabel: "Dow Jones CFD (US30) — matches MYM price scale" },
+  M2K: { symbol: "CAPITALCOM:US2000", proxyLabel: "Russell 2000 CFD (US2000) — matches M2K price scale" },
+  MCL: { symbol: "TVC:USOIL", proxyLabel: "WTI Crude CFD (USOIL) — matches MCL price scale" },
+  MGC: { symbol: "OANDA:XAUUSD", proxyLabel: "Gold spot (XAU/USD) — matches MGC price scale" },
 };
 
 const FUTURES_SYMBOL_MAP: Record<string, string> = {
@@ -59,12 +59,12 @@ export function tradingViewProxyLabel(instrument: Instrument): string | undefine
 // Ordered alternate-symbol list per instrument, used by the chart
 // fallback when the primary symbol cannot render.
 const ALTERNATES: Record<string, string[]> = {
-  MES: ["AMEX:SPY", "TVC:SPX", "FX_IDC:SPXUSD", "CAPITALCOM:US500"],
-  MNQ: ["NASDAQ:QQQ", "TVC:NDX", "FX_IDC:NDXUSD", "CAPITALCOM:US100"],
-  MYM: ["AMEX:DIA", "TVC:DJI", "CAPITALCOM:US30"],
-  M2K: ["AMEX:IWM", "TVC:RUT", "CAPITALCOM:US2000"],
-  MCL: ["AMEX:USO", "TVC:USOIL", "NYMEX:CL1!"],
-  MGC: ["AMEX:GLD", "TVC:GOLD", "OANDA:XAUUSD", "COMEX:GC1!"],
+  MES: ["CAPITALCOM:US500", "FX_IDC:SPXUSD", "TVC:SPX", "AMEX:SPY"],
+  MNQ: ["CAPITALCOM:US100", "FX_IDC:NDXUSD", "TVC:NDX", "NASDAQ:QQQ"],
+  MYM: ["CAPITALCOM:US30", "TVC:DJI", "AMEX:DIA"],
+  M2K: ["CAPITALCOM:US2000", "TVC:RUT", "AMEX:IWM"],
+  MCL: ["TVC:USOIL", "CAPITALCOM:OIL_CRUDE", "AMEX:USO", "NYMEX:CL1!"],
+  MGC: ["OANDA:XAUUSD", "TVC:GOLD", "CAPITALCOM:GOLD", "AMEX:GLD", "COMEX:GC1!"],
 };
 
 export function tradingViewAlternates(
