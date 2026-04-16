@@ -104,3 +104,36 @@ After each phase, `npm run test` + `npm run typecheck` + `npm run build` must al
   - every `PropFirmEntryState` has a non-empty label.
 - Manual: approve → send flow on Control Center updates execution state, journal gets a new entry, state chip moves to `sent`. Switching instruments resets workflow to `draft`.
 
+## 12. Six-page workstation refactor
+
+### 12.1 Page registry
+
+- `pages.test.ts`
+  - the six pages exist in canonical order: desk, charts, control_center, pine_studio, journal, settings.
+  - every page has a label and a one-sentence role.
+- Manual: top tab bar exposes all six; switching pages preserves selected instrument and execution workflow.
+
+### 12.2 Route health
+
+- `routeHealth.test.ts`
+  - both routes return `ok` when kill switch is off.
+  - both flip to `degraded` when kill switch is on.
+  - every route entry has a valid ISO timestamp + non-empty note.
+- Manual: Control Center → Route Health panel reflects toggle.
+
+### 12.3 Chart fallback (controlled)
+
+- `tradingView.test.ts`
+  - alternate symbols exist for every instrument and never include the current symbol.
+- Manual: Charts → "Mark unavailable" on a cell → fallback shows attempted symbol + alternates + Retry. Retry restores the embed. No popup loops.
+
+### 12.4 UI de-duplication acceptance
+
+Manual checks (per directive):
+
+- Desk does NOT show: agent board, full audit, full chart workspace, large repeated validation matrices.
+- Control Center does NOT show: hero card, runner-ups, Pine builder, full chart workspace, large execution composer.
+- Charts does NOT show: execution controls, agent board, audit, repeated validation tables.
+- Pine Studio does NOT show: control-center supervision, audit, chart workspace.
+- Journal does NOT show: live execution composer, control center duplication.
+

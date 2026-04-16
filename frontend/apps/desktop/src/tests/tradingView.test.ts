@@ -3,6 +3,7 @@ import {
   DEFAULT_QUAD_TIMEFRAMES,
   TIMEFRAMES,
   buildChartContext,
+  tradingViewAlternates,
   tradingViewEmbedUrl,
   tradingViewSymbol,
 } from "../engine/tradingView";
@@ -65,5 +66,19 @@ describe("embed url", () => {
     expect(url).toContain("symbol=CME_MINI%3AMES1%21");
     expect(url).toContain("interval=5");
     expect(url).toContain("theme=dark");
+  });
+});
+
+describe("alternate symbols", () => {
+  it("provides at least one alternate per supported instrument", () => {
+    const mes = INSTRUMENTS.find((i) => i.symbol === "MES")!;
+    expect(tradingViewAlternates(mes, "TVC:SPX").length).toBeGreaterThan(0);
+  });
+
+  it("never returns the current symbol in the alternates list", () => {
+    for (const inst of INSTRUMENTS) {
+      const current = tradingViewSymbol(inst, "proxy");
+      expect(tradingViewAlternates(inst, current)).not.toContain(current);
+    }
   });
 });

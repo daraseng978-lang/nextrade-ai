@@ -30,17 +30,18 @@ npm run test         # vitest matrix
 npm run build        # production build
 ```
 
-The workstation is a **three-column layout**:
+The workstation has **six top-level pages** with strict, non-overlapping roles:
 
-- **Left — Market Scanner:** instruments, regime, tradable state
-- **Center — Decision Engine + Execution:** hero trade card, runner-ups, Telegram / KEY=VALUE / JSON output, approve → send
-- **Right — Strategy & Tools:** Validation, Pine Studio, Control Center, Journal
+| Page | Role | Shows |
+|---|---|---|
+| **Desk** | Best trade right now · why · what to do | Scanner · best trade card · runner-ups · compact validation · execution composer |
+| **Charts** | Multi-timeframe market view | Scanner · TradingView quad / focus · level overlays · proxy/futures toggle |
+| **Control Center** | System health & supervision | System mode · kill switch · quorum · approval queue · agents · prop-firm readiness · audit trail · route health |
+| **Pine Studio** | Strategy realization | Selected playbook context · day-specific Pine v5 · alert payload |
+| **Journal** | Review & calibration | Performance roll-up · trade table |
+| **Settings** | Configuration | Account · risk · supervision toggles · chart feed default · integrations |
 
-Optional panels available:
-
-- `QuorumPanel` — multi-check agreement view (toggle from top bar)
-- `CapitalLabWorkspace` — prop-firm planning workspace
-- `PerformancePanel` — journal roll-up
+Each page is intentionally non-redundant — the Desk does not show agent boards, the Control Center does not show the full hero card, Charts does not show execution, etc.
 
 ## Core rules (locked)
 

@@ -9,19 +9,22 @@ import {
 } from "react";
 import type {
   AccountRiskConfig,
+  EventEntry,
   ExecutionState,
   InstrumentContext,
   PropFirmControl,
+  RouteHealth,
   SelectedSignal,
   TimeframeId,
+  WorkstationPage,
 } from "../engine/types";
 import { decide } from "../engine/decisionEngine";
 import { DEFAULT_ACCOUNT } from "../engine/sizing";
 import { mockContexts } from "../engine/mockData";
 import { buildPropFirmControl } from "../engine/propFirm";
 import { DEFAULT_QUAD_TIMEFRAMES, type ChartFeedMode } from "../engine/tradingView";
+import { buildMockRouteHealth } from "../engine/routeHealth";
 
-export type WorkspaceMode = "desk" | "control_center";
 export type ChartViewMode = "quad" | "focus";
 
 interface WorkstationState {
@@ -36,12 +39,13 @@ interface WorkstationState {
   setKillSwitch: (v: boolean) => void;
   setQuorumEnabled: (v: boolean) => void;
   setAccount: (cfg: AccountRiskConfig) => void;
+
   journal: JournalEntry[];
   logExecution: (entry: JournalEntry) => void;
 
-  // Control Center additions
-  workspaceMode: WorkspaceMode;
-  setWorkspaceMode: (m: WorkspaceMode) => void;
+  page: WorkstationPage;
+  setPage: (p: WorkstationPage) => void;
+
   chartViewMode: ChartViewMode;
   setChartViewMode: (m: ChartViewMode) => void;
   focusTimeframe: TimeframeId;
@@ -51,12 +55,20 @@ interface WorkstationState {
   chartFeedMode: ChartFeedMode;
   setChartFeedMode: (m: ChartFeedMode) => void;
 
+  // Per-cell chart unavailability — keyed by `${symbol}:${tf}`.
+  chartUnavailable: Record<string, string>; // value = current symbol that failed
+  markChartUnavailable: (key: string, symbol: string) => void;
+  clearChartUnavailable: (key: string) => void;
+
   executionState: ExecutionState;
   approve: () => void;
   send: () => void;
   resetWorkflow: () => void;
 
   propFirm: PropFirmControl;
+  routeHealth: RouteHealth;
+  events: EventEntry[];
+  pushEvent: (entry: Omit<EventEntry, "id" | "timestamp">) => void;
 }
 
 export interface JournalEntry {
@@ -81,15 +93,19 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     contexts[0]?.instrument.symbol ?? "MES",
   );
   const [account, setAccount] = useState(DEFAULT_ACCOUNT);
-  const [killSwitch, setKillSwitch] = useState(false);
-  const [quorumEnabled, setQuorumEnabled] = useState(false);
+  const [killSwitch, setKillSwitchRaw] = useState(false);
+  const [quorumEnabled, setQuorumEnabledRaw] = useState(false);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("desk");
+
+  const [page, setPage] = useState<WorkstationPage>("desk");
   const [chartViewMode, setChartViewMode] = useState<ChartViewMode>("quad");
   const [focusTimeframe, setFocusTimeframe] = useState<TimeframeId>("5");
   const [chartTimeframes, setChartTimeframes] = useState<TimeframeId[]>(DEFAULT_QUAD_TIMEFRAMES);
   const [chartFeedMode, setChartFeedMode] = useState<ChartFeedMode>("proxy");
+  const [chartUnavailable, setChartUnavailable] = useState<Record<string, string>>({});
+
   const [executionState, setExecutionState] = useState<ExecutionState>("draft");
+  const [events, setEvents] = useState<EventEntry[]>([]);
 
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
@@ -101,16 +117,62 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
 
   const selected = signals[selectedSymbol] ?? signals[contexts[0].instrument.symbol];
 
-  // Reset workflow whenever the selected trade changes — no stale approval.
-  const setSelectedSymbol = useCallback((symbol: string) => {
-    setSelectedSymbolRaw(symbol);
-    setExecutionState("draft");
-  }, []);
+  const pushEvent = useCallback(
+    (entry: Omit<EventEntry, "id" | "timestamp">) => {
+      setEvents((prev) =>
+        [
+          {
+            ...entry,
+            id: `${entry.kind}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            timestamp: new Date().toISOString(),
+          },
+          ...prev,
+        ].slice(0, 200),
+      );
+    },
+    [],
+  );
 
-  // Force execution state to reflect objective conditions when they change.
+  const setSelectedSymbol = useCallback(
+    (symbol: string) => {
+      setSelectedSymbolRaw(symbol);
+      setExecutionState("draft");
+      pushEvent({ kind: "instrument_selected", symbol, detail: `Selected ${symbol}` });
+    },
+    [pushEvent],
+  );
+
+  const setKillSwitch = useCallback(
+    (v: boolean) => {
+      setKillSwitchRaw(v);
+      pushEvent({
+        kind: v ? "kill_switch_armed" : "kill_switch_disarmed",
+        detail: v ? "Kill switch engaged — routing disabled." : "Kill switch disarmed.",
+      });
+    },
+    [pushEvent],
+  );
+
+  const setQuorumEnabled = useCallback(
+    (v: boolean) => {
+      setQuorumEnabledRaw(v);
+      pushEvent({
+        kind: "quorum_toggled",
+        detail: v ? "Quorum confirmation enabled." : "Quorum confirmation disabled.",
+      });
+    },
+    [pushEvent],
+  );
+
+  // Force execution state to reflect objective conditions.
   useEffect(() => {
     if (selected.hardBlock.active) {
       setExecutionState("blocked");
+      pushEvent({
+        kind: "hard_block_triggered",
+        symbol: selected.candidate.instrument.symbol,
+        detail: `Hard block: ${selected.hardBlock.reason ?? "unknown"}.`,
+      });
     } else if (selected.sizing.finalContracts === 0) {
       setExecutionState("watch_only");
     } else {
@@ -118,6 +180,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
         prev === "blocked" || prev === "watch_only" ? "draft" : prev,
       );
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected.hardBlock.active, selected.sizing.finalContracts]);
 
   const propFirm = useMemo(
@@ -139,7 +202,12 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     if (selected.hardBlock.active || selected.sizing.finalContracts === 0) return;
     const reduced = selected.adjustedScore < 0.58;
     setExecutionState(reduced ? "reduced_approved" : "approved");
-  }, [executionState, selected]);
+    pushEvent({
+      kind: "approved",
+      symbol: selected.candidate.instrument.symbol,
+      detail: `${reduced ? "Reduced-size" : "Full-size"} approval · ${selected.sizing.finalContracts} ctx.`,
+    });
+  }, [executionState, selected, pushEvent]);
 
   const send = useCallback(() => {
     if (executionState !== "approved" && executionState !== "reduced_approved") return;
@@ -160,13 +228,41 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
         ...prev,
       ].slice(0, 200),
     );
-  }, [executionState, selected]);
+    pushEvent({
+      kind: "sent",
+      symbol: selected.candidate.instrument.symbol,
+      detail: `Sent to TradersPost · ${selected.sizing.finalContracts} ctx.`,
+    });
+  }, [executionState, selected, pushEvent]);
 
   const resetWorkflow = useCallback(() => {
     if (selected.hardBlock.active) setExecutionState("blocked");
     else if (selected.sizing.finalContracts === 0) setExecutionState("watch_only");
     else setExecutionState("draft");
   }, [selected]);
+
+  const markChartUnavailable = useCallback(
+    (key: string, symbol: string) => {
+      setChartUnavailable((prev) => ({ ...prev, [key]: symbol }));
+      pushEvent({ kind: "chart_unavailable", detail: `Chart unavailable for ${symbol} (${key})` });
+    },
+    [pushEvent],
+  );
+
+  const clearChartUnavailable = useCallback(
+    (key: string) => {
+      setChartUnavailable((prev) => {
+        if (!(key in prev)) return prev;
+        const copy = { ...prev };
+        delete copy[key];
+        return copy;
+      });
+      pushEvent({ kind: "chart_retried", detail: `Retrying chart for ${key}` });
+    },
+    [pushEvent],
+  );
+
+  const routeHealth = useMemo(() => buildMockRouteHealth(killSwitch), [killSwitch]);
 
   const value: WorkstationState = {
     contexts,
@@ -182,8 +278,8 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     setAccount,
     journal,
     logExecution: (entry) => setJournal((prev) => [entry, ...prev].slice(0, 200)),
-    workspaceMode,
-    setWorkspaceMode,
+    page,
+    setPage,
     chartViewMode,
     setChartViewMode,
     focusTimeframe,
@@ -192,11 +288,17 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     setChartTimeframes,
     chartFeedMode,
     setChartFeedMode,
+    chartUnavailable,
+    markChartUnavailable,
+    clearChartUnavailable,
     executionState,
     approve,
     send,
     resetWorkflow,
     propFirm,
+    routeHealth,
+    events,
+    pushEvent,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
