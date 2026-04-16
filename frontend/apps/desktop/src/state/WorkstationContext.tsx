@@ -19,7 +19,7 @@ import { decide } from "../engine/decisionEngine";
 import { DEFAULT_ACCOUNT } from "../engine/sizing";
 import { mockContexts } from "../engine/mockData";
 import { buildPropFirmControl } from "../engine/propFirm";
-import { DEFAULT_QUAD_TIMEFRAMES } from "../engine/tradingView";
+import { DEFAULT_QUAD_TIMEFRAMES, type ChartFeedMode } from "../engine/tradingView";
 
 export type WorkspaceMode = "desk" | "control_center";
 export type ChartViewMode = "quad" | "focus";
@@ -48,6 +48,8 @@ interface WorkstationState {
   setFocusTimeframe: (tf: TimeframeId) => void;
   chartTimeframes: TimeframeId[];
   setChartTimeframes: (tfs: TimeframeId[]) => void;
+  chartFeedMode: ChartFeedMode;
+  setChartFeedMode: (m: ChartFeedMode) => void;
 
   executionState: ExecutionState;
   approve: () => void;
@@ -86,6 +88,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [chartViewMode, setChartViewMode] = useState<ChartViewMode>("quad");
   const [focusTimeframe, setFocusTimeframe] = useState<TimeframeId>("5");
   const [chartTimeframes, setChartTimeframes] = useState<TimeframeId[]>(DEFAULT_QUAD_TIMEFRAMES);
+  const [chartFeedMode, setChartFeedMode] = useState<ChartFeedMode>("proxy");
   const [executionState, setExecutionState] = useState<ExecutionState>("draft");
 
   const signals = useMemo(() => {
@@ -187,6 +190,8 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     setFocusTimeframe,
     chartTimeframes,
     setChartTimeframes,
+    chartFeedMode,
+    setChartFeedMode,
     executionState,
     approve,
     send,
