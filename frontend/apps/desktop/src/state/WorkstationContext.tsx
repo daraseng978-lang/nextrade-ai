@@ -46,11 +46,21 @@ import {
 } from "../engine/marketDataProvider";
 import {
   dispatchToTradersPost,
+  dispatchTelegram,
   DEFAULT_DISPATCH_CONFIG,
+  DEFAULT_TELEGRAM_CONFIG,
   type DispatchConfig,
   type DispatchResult,
+  type TelegramConfig,
+  type TelegramDispatchResult,
 } from "../engine/dispatch";
 import { formatExecution } from "../engine/executionFormatter";
+import {
+  formatApprovalMessage,
+  formatBriefMessage,
+  formatSentMessage,
+  formatSignalMessage,
+} from "../engine/telegramMessages";
 
 export type { JournalEntry } from "../engine/journal";
 
@@ -125,6 +135,12 @@ interface WorkstationState {
   setDispatchConfig: (cfg: DispatchConfig) => void;
   lastDispatchResult: DispatchResult | null;
   testDispatch: () => Promise<DispatchResult>;
+
+  // Telegram notifications
+  telegramConfig: TelegramConfig;
+  setTelegramConfig: (cfg: TelegramConfig) => void;
+  lastTelegramResult: TelegramDispatchResult | null;
+  testTelegram: () => Promise<TelegramDispatchResult>;
 }
 
 export type FeedStatus = "idle" | "loading" | "live" | "error";
@@ -150,6 +166,7 @@ function persistProviderConfig(cfg: MarketDataProviderConfig): void {
 }
 
 const DISPATCH_CONFIG_STORAGE_KEY = "nextrade.dispatch.v1";
+const TELEGRAM_CONFIG_STORAGE_KEY = "nextrade.telegram.v1";
 
 function loadDispatchConfig(): DispatchConfig {
   if (typeof window === "undefined") return DEFAULT_DISPATCH_CONFIG;
@@ -165,6 +182,27 @@ function persistDispatchConfig(cfg: DispatchConfig): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(DISPATCH_CONFIG_STORAGE_KEY, JSON.stringify(cfg));
+  } catch { /* ignore */ }
+}
+
+function loadTelegramConfig(): TelegramConfig {
+  if (typeof window === "undefined") return DEFAULT_TELEGRAM_CONFIG;
+  try {
+    const raw = window.localStorage.getItem(TELEGRAM_CONFIG_STORAGE_KEY);
+    if (!raw) return DEFAULT_TELEGRAM_CONFIG;
+    const parsed = JSON.parse(raw) as TelegramConfig;
+    return {
+      ...DEFAULT_TELEGRAM_CONFIG,
+      ...parsed,
+      triggers: { ...DEFAULT_TELEGRAM_CONFIG.triggers, ...(parsed?.triggers ?? {}) },
+    };
+  } catch { return DEFAULT_TELEGRAM_CONFIG; }
+}
+
+function persistTelegramConfig(cfg: TelegramConfig): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TELEGRAM_CONFIG_STORAGE_KEY, JSON.stringify(cfg));
   } catch { /* ignore */ }
 }
 
@@ -237,11 +275,27 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [dispatchConfig, setDispatchConfigRaw] = useState<DispatchConfig>(loadDispatchConfig);
   const [lastDispatchResult, setLastDispatchResult] = useState<DispatchResult | null>(null);
 
+  const [telegramConfig, setTelegramConfigRaw] = useState<TelegramConfig>(loadTelegramConfig);
+  const [lastTelegramResult, setLastTelegramResult] = useState<TelegramDispatchResult | null>(null);
+
   useEffect(() => { persistDispatchConfig(dispatchConfig); }, [dispatchConfig]);
+  useEffect(() => { persistTelegramConfig(telegramConfig); }, [telegramConfig]);
 
   const setDispatchConfig = useCallback((cfg: DispatchConfig) => {
     setDispatchConfigRaw(cfg);
   }, []);
+
+  const setTelegramConfig = useCallback((cfg: TelegramConfig) => {
+    setTelegramConfigRaw(cfg);
+  }, []);
+
+  // --- Telegram notification triggers --------------------------------
+  // Refs deduplicate state-change fires (prevents re-render storms
+  // from re-sending the same message).
+  const tgLastBriefDateRef = useRef<string | null>(null);
+  const tgLastSignalIdRef = useRef<string | null>(null);
+  const tgLastApprovalStateRef = useRef<string | null>(null);
+  const tgLastSentIdRef = useRef<string | null>(null);
 
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
@@ -417,6 +471,43 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     [selected, account, executionState],
   );
 
+  // Telegram trigger 1/4 — pre-market brief (one message per session date)
+  useEffect(() => {
+    if (!telegramConfig.enabled || !telegramConfig.triggers.brief) return;
+    if (tgLastBriefDateRef.current === preMarketBrief.date) return;
+    tgLastBriefDateRef.current = preMarketBrief.date;
+    dispatchTelegram(formatBriefMessage(preMarketBrief), telegramConfig)
+      .then(setLastTelegramResult);
+  }, [preMarketBrief, telegramConfig]);
+
+  // Telegram trigger 2/4 — new signal selected (only tradeable ones,
+  // skip stand-aside + hard blocks to avoid noise)
+  useEffect(() => {
+    if (!telegramConfig.enabled || !telegramConfig.triggers.signal) return;
+    if (selected.hardBlock.active) return;
+    if (selected.state === "stand_aside" || selected.state === "hard_blocked") return;
+    if (tgLastSignalIdRef.current === selected.id) return;
+    tgLastSignalIdRef.current = selected.id;
+    dispatchTelegram(formatSignalMessage(selected), telegramConfig)
+      .then(setLastTelegramResult);
+  }, [selected.id, telegramConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Telegram trigger 3/4 — approval state transitions
+  useEffect(() => {
+    if (!telegramConfig.enabled || !telegramConfig.triggers.approval) return;
+    const key = `${selected.id}:${executionState}`;
+    if (tgLastApprovalStateRef.current === key) return;
+    if (executionState === "draft" && propFirm.finalContracts > 0 && !selected.hardBlock.active) {
+      tgLastApprovalStateRef.current = key;
+      dispatchTelegram(formatApprovalMessage(selected, propFirm, "needed"), telegramConfig)
+        .then(setLastTelegramResult);
+    } else if (executionState === "approved" || executionState === "reduced_approved") {
+      tgLastApprovalStateRef.current = key;
+      dispatchTelegram(formatApprovalMessage(selected, propFirm, "given"), telegramConfig)
+        .then(setLastTelegramResult);
+    }
+  }, [selected.id, executionState, propFirm.finalContracts, telegramConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto Pilot: evaluate guardrails on every selected-signal / state
   // change. When all pass, approve + send in one step and bump the
   // daily counter. Skipped evaluations log an event so the trader sees
@@ -475,6 +566,16 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
               : `Auto Pilot → TradersPost FAILED · ${dispatchResult.message}`)
           : `Auto Pilot send (dispatch disabled).`,
       });
+      if (telegramConfig.enabled && telegramConfig.triggers.sent && tgLastSentIdRef.current !== selected.id) {
+        tgLastSentIdRef.current = selected.id;
+        const status: "ok" | "fail" | "mock" = dispatchConfig.enabled
+          ? (dispatchResult.ok ? "ok" : "fail")
+          : "mock";
+        dispatchTelegram(
+          formatSentMessage(selected, status, dispatchResult.status ? String(dispatchResult.status) : dispatchResult.message, true),
+          telegramConfig,
+        ).then(setLastTelegramResult);
+      }
     });
 
     const c = selected.candidate;
@@ -525,6 +626,8 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     preMarketBrief.mentalReadiness.sessionReadiness,
     preMarketBrief.mentalReadiness.suggestedMaxTrades,
     autoPilotMinScore,
+    dispatchConfig,
+    telegramConfig,
   ]);
 
   const approve = useCallback(() => {
@@ -598,7 +701,18 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
             : `TradersPost dispatch FAILED · ${dispatchResult.message}`)
         : `Sent (mock — dispatch disabled) · ${selected.sizing.finalContracts} ctx.`,
     });
-  }, [executionState, selected, pushEvent, dispatchConfig]);
+
+    if (telegramConfig.enabled && telegramConfig.triggers.sent && tgLastSentIdRef.current !== selected.id) {
+      tgLastSentIdRef.current = selected.id;
+      const status: "ok" | "fail" | "mock" = dispatchConfig.enabled
+        ? (dispatchResult.ok ? "ok" : "fail")
+        : "mock";
+      dispatchTelegram(
+        formatSentMessage(selected, status, dispatchResult.status ? String(dispatchResult.status) : dispatchResult.message, false),
+        telegramConfig,
+      ).then(setLastTelegramResult);
+    }
+  }, [executionState, selected, pushEvent, dispatchConfig, telegramConfig]);
 
   // Send a synthetic test payload through the dispatch pipeline so the
   // user can verify their TradersPost webhook before arming Auto Pilot.
@@ -608,6 +722,15 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     setLastDispatchResult(result);
     return result;
   }, [selected, dispatchConfig]);
+
+  // Send a test Telegram message so the user can verify their bot token
+  // + chat id before relying on real trigger notifications.
+  const testTelegram = useCallback(async (): Promise<TelegramDispatchResult> => {
+    const text = `🧪 Nextrade AI · test message · ${new Date().toLocaleString()}`;
+    const result = await dispatchTelegram(text, telegramConfig);
+    setLastTelegramResult(result);
+    return result;
+  }, [telegramConfig]);
 
   const updateJournalEntry = useCallback((id: string, patch: Partial<JournalEntry>) => {
     setJournal((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -701,6 +824,10 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     setDispatchConfig,
     lastDispatchResult,
     testDispatch,
+    telegramConfig,
+    setTelegramConfig,
+    lastTelegramResult,
+    testTelegram,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

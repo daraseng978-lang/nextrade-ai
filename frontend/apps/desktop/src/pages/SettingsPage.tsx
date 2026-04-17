@@ -25,8 +25,13 @@ export function SettingsPage() {
     setDispatchConfig,
     lastDispatchResult,
     testDispatch,
+    telegramConfig,
+    setTelegramConfig,
+    lastTelegramResult,
+    testTelegram,
   } = useWorkstation();
   const [testing, setTesting] = useState(false);
+  const [testingTg, setTestingTg] = useState(false);
 
   const update = (patch: Partial<typeof account>) =>
     setAccount({ ...account, ...patch });
@@ -372,6 +377,146 @@ export function SettingsPage() {
         </section>
 
         <section className="panel">
+          <h2>Telegram Notifications</h2>
+          <small>
+            Push four categories of events to your Telegram chat: daily
+            pre-market brief, new signal selected, approval stages, and
+            trade sent. Bot token + chat id stay server-side.
+          </small>
+
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 12 }}>
+            <button
+              className={`btn ${telegramConfig.enabled ? "primary" : ""}`}
+              onClick={() => setTelegramConfig({ ...telegramConfig, enabled: !telegramConfig.enabled })}
+            >
+              {telegramConfig.enabled ? "Disable Telegram" : "Enable Telegram"}
+            </button>
+            <small>
+              State:{" "}
+              <strong style={{ color: telegramConfig.enabled ? "var(--accent)" : "var(--muted)" }}>
+                {telegramConfig.enabled ? "ON" : "OFF"}
+              </strong>
+            </small>
+          </div>
+
+          <table className="kv" style={{ marginTop: 10 }}>
+            <tbody>
+              <tr>
+                <td className="k">Backend endpoint</td>
+                <td>
+                  <input
+                    type="url"
+                    placeholder="http://localhost:3001/dispatch/telegram"
+                    value={telegramConfig.endpoint}
+                    onChange={(e) =>
+                      setTelegramConfig({ ...telegramConfig, endpoint: e.target.value })
+                    }
+                    className="exec-block" style={{ width: 420 }}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td className="k">Bot token / Chat ID</td>
+                <td>
+                  <small>
+                    Set on the backend in <code>backend/alpaca-feed/.env</code>:{" "}
+                    <code>TELEGRAM_BOT_TOKEN</code> + <code>TELEGRAM_CHAT_ID</code>.
+                    Get a bot from <strong>@BotFather</strong> on Telegram.
+                  </small>
+                </td>
+              </tr>
+              <tr>
+                <td className="k">Triggers</td>
+                <td>
+                  <label className="tg-trigger">
+                    <input
+                      type="checkbox"
+                      checked={telegramConfig.triggers.brief}
+                      onChange={(e) =>
+                        setTelegramConfig({
+                          ...telegramConfig,
+                          triggers: { ...telegramConfig.triggers, brief: e.target.checked },
+                        })
+                      }
+                    />
+                    Daily brief
+                  </label>
+                  <label className="tg-trigger">
+                    <input
+                      type="checkbox"
+                      checked={telegramConfig.triggers.signal}
+                      onChange={(e) =>
+                        setTelegramConfig({
+                          ...telegramConfig,
+                          triggers: { ...telegramConfig.triggers, signal: e.target.checked },
+                        })
+                      }
+                    />
+                    New signal
+                  </label>
+                  <label className="tg-trigger">
+                    <input
+                      type="checkbox"
+                      checked={telegramConfig.triggers.approval}
+                      onChange={(e) =>
+                        setTelegramConfig({
+                          ...telegramConfig,
+                          triggers: { ...telegramConfig.triggers, approval: e.target.checked },
+                        })
+                      }
+                    />
+                    Approval
+                  </label>
+                  <label className="tg-trigger">
+                    <input
+                      type="checkbox"
+                      checked={telegramConfig.triggers.sent}
+                      onChange={(e) =>
+                        setTelegramConfig({
+                          ...telegramConfig,
+                          triggers: { ...telegramConfig.triggers, sent: e.target.checked },
+                        })
+                      }
+                    />
+                    Trade sent
+                  </label>
+                </td>
+              </tr>
+              <tr>
+                <td className="k">Last message</td>
+                <td>
+                  {lastTelegramResult ? (
+                    <small style={{ color: lastTelegramResult.ok ? "var(--accent)" : "var(--danger)" }}>
+                      {lastTelegramResult.ok ? "✓" : "✗"} {lastTelegramResult.message}
+                      {lastTelegramResult.status > 0 && <> · HTTP {lastTelegramResult.status}</>}
+                      {lastTelegramResult.messageId && <> · id {lastTelegramResult.messageId}</>}
+                    </small>
+                  ) : (
+                    <small style={{ color: "var(--muted)" }}>none yet</small>
+                  )}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style={{ marginTop: 10 }}>
+            <button
+              className="btn"
+              disabled={testingTg || !telegramConfig.enabled}
+              onClick={async () => {
+                setTestingTg(true);
+                try { await testTelegram(); } finally { setTestingTg(false); }
+              }}
+            >
+              {testingTg ? "Sending…" : "Test message"}
+            </button>
+            <small style={{ marginLeft: 10, color: "var(--muted)" }}>
+              Sends "🧪 Nextrade AI · test message · [time]" to your chat.
+            </small>
+          </div>
+        </section>
+
+        <section className="panel">
           <h2>Integrations</h2>
           <table className="kv">
             <tbody>
@@ -381,6 +526,17 @@ export function SettingsPage() {
                   {dispatchConfig.enabled
                     ? <strong style={{ color: "var(--danger)" }}>LIVE dispatch enabled</strong>
                     : "mock · disabled (configure in TradersPost Dispatch above)"}
+                </td>
+              </tr>
+              <tr>
+                <td className="k">Telegram</td>
+                <td>
+                  {telegramConfig.enabled
+                    ? <>
+                        <strong style={{ color: "var(--accent)" }}>ON</strong> ·{" "}
+                        {Object.entries(telegramConfig.triggers).filter(([, v]) => v).map(([k]) => k).join(", ")}
+                      </>
+                    : "disabled"}
                 </td>
               </tr>
               <tr><td className="k">Tradovate</td><td>mock · ready (routed via TradersPost)</td></tr>

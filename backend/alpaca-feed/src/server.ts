@@ -7,6 +7,7 @@ import { classifyRegime } from "./regime.js";
 import { SYMBOL_MAPPINGS, scale, type SymbolMapping } from "./mapping.js";
 import type { InstrumentContext } from "./types.js";
 import { dispatchTradersPost, redactWebhook, validatePayload } from "./dispatch.js";
+import { sendTelegramMessage } from "./telegram.js";
 
 dotenv.config();
 
@@ -17,6 +18,8 @@ const {
   PORT = "3001",
   CACHE_TTL_MS = "4000",
   TRADERSPOST_WEBHOOK_URL = "",
+  TELEGRAM_BOT_TOKEN = "",
+  TELEGRAM_CHAT_ID = "",
 } = process.env;
 
 if (!APCA_API_KEY_ID || !APCA_API_SECRET_KEY) {
@@ -97,7 +100,41 @@ app.get("/health", (_req, res) => {
       configured: !!TRADERSPOST_WEBHOOK_URL,
       webhook: TRADERSPOST_WEBHOOK_URL ? redactWebhook(TRADERSPOST_WEBHOOK_URL) : null,
     },
+    telegram: {
+      configured: !!(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID),
+      chatId: TELEGRAM_CHAT_ID ? maskChatId(TELEGRAM_CHAT_ID) : null,
+    },
   });
+});
+
+function maskChatId(id: string): string {
+  if (id.length <= 4) return "***";
+  return `${id.slice(0, 2)}***${id.slice(-2)}`;
+}
+
+app.post("/dispatch/telegram", async (req, res) => {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return res.status(503).json({
+      ok: false,
+      error: "Telegram not configured. Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in backend/alpaca-feed/.env and restart.",
+    });
+  }
+  const text = typeof req.body?.text === "string" ? req.body.text : "";
+  if (!text) {
+    return res.status(400).json({ ok: false, error: "body.text required" });
+  }
+  try {
+    const result = await sendTelegramMessage(text, {
+      botToken: TELEGRAM_BOT_TOKEN,
+      chatId: TELEGRAM_CHAT_ID,
+    });
+    console.log(`[/dispatch/telegram] ${result.status} ${result.ok ? "ok" : "FAIL"} (${text.length} chars)`);
+    res.status(result.ok ? 200 : 502).json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/dispatch/telegram] error:", msg);
+    res.status(400).json({ ok: false, error: msg });
+  }
 });
 
 app.post("/dispatch/traderspost", async (req, res) => {
@@ -147,5 +184,10 @@ app.listen(port, () => {
     console.log(`[alpaca-feed] tradersPost webhook: ${redactWebhook(TRADERSPOST_WEBHOOK_URL)}`);
   } else {
     console.log(`[alpaca-feed] tradersPost dispatch: DISABLED (no TRADERSPOST_WEBHOOK_URL set)`);
+  }
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
+    console.log(`[alpaca-feed] telegram notifications: ENABLED (chat ${maskChatId(TELEGRAM_CHAT_ID)})`);
+  } else {
+    console.log(`[alpaca-feed] telegram notifications: DISABLED (no TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID set)`);
   }
 });

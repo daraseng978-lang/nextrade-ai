@@ -59,6 +59,31 @@ to verify before arming Auto Pilot or sending real trades.
 The webhook URL never reaches the browser — only the backend holds
 it. The frontend only knows the backend dispatch endpoint URL.
 
+## Telegram notifications
+
+1. **Create a bot**: open Telegram, message `@BotFather` →
+   `/newbot` → give it a name. Copy the token it returns (looks
+   like `123456789:AA...`).
+2. **Get your chat id**: start a chat with your new bot, tap "Start",
+   then send any message. Open
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser and
+   look for `"chat":{"id": <number>`. That number is your
+   `TELEGRAM_CHAT_ID`.
+3. Paste both into `.env`:
+   ```
+   TELEGRAM_BOT_TOKEN=123456789:AA...
+   TELEGRAM_CHAT_ID=12345678
+   ```
+4. Restart the backend.
+5. Frontend: Settings → Telegram Notifications → Enable → Test message.
+
+**Triggers (toggleable in Settings):**
+- **Daily brief** — Reggie's pre-market checklist on session start
+- **New signal** — when Dex picks a fresh tradeable candidate
+- **Approval** — "needs approval" draft state + "approved" confirmation
+- **Trade sent** — manual Send or Auto Pilot execution, with
+  TradersPost dispatch status
+
 Snapshots are cached for `CACHE_TTL_MS` (default 4s) to avoid
 hammering Alpaca. Poll interval in the frontend can be shorter than
 the TTL — cached responses return immediately.
