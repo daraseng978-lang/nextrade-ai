@@ -2004,6 +2004,19 @@ table.kv td.k {
   color: var(--muted);
 }
 
+.ai-journal-result {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--panel-alt, rgba(255,255,255,0.03));
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 /* Trade card */
 .journal-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 

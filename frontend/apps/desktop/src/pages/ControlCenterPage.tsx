@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useWorkstation } from "../state/WorkstationContext";
+import { aiMorningBrief } from "../engine/ai";
 import { entryStateLabel } from "../engine/propFirm";
 import { STRATEGIES } from "../engine/strategies";
 import { buildAgentStatuses, groupAgents } from "../engine/agents";
@@ -1083,10 +1084,27 @@ function mockTickRate(symbol: string): string {
 
 function PreMarketBriefSection({ brief }: { brief: PreMarketBrief }) {
   const { mentalReadiness, economicCalendar, overnightSummary, sectorRotation, date } = brief;
+  const { contexts, crossMarket, providerConfig } = useWorkstation();
   const readinessColor =
     mentalReadiness.sessionReadiness === "ready"      ? "var(--accent)" :
     mentalReadiness.sessionReadiness === "caution"    ? "var(--warn)" :
     "var(--danger)";
+
+  const [aiNarrative, setAiNarrative] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const runAiBrief = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    const highImpact = economicCalendar
+      .filter(e => e.impact === "high")
+      .map(e => ({ time: e.time, event: e.event, impact: e.impact, forecast: e.forecast, previous: e.previous }));
+    const r = await aiMorningBrief(providerConfig.restUrl, date, contexts, crossMarket, highImpact);
+    setAiLoading(false);
+    if (r.ok && r.data) setAiNarrative(r.data.narrative);
+    else setAiError(r.error ?? "unknown error");
+  };
 
   return (
     <section className="cc-v2-section cc-brief">
@@ -1095,6 +1113,27 @@ function PreMarketBriefSection({ brief }: { brief: PreMarketBrief }) {
         <span className="cc-brief-tag">REGGIE → STRAT</span>
       </div>
       <div className="cc-v2-section-sub">{date} · enriched before decision engine</div>
+
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">
+          🤖 AI Desk Note
+          <button
+            className="journal-filter-chip"
+            disabled={aiLoading}
+            onClick={runAiBrief}
+            style={{ fontSize: 12, padding: "4px 10px" }}
+          >
+            {aiLoading ? "Writing…" : aiNarrative ? "Regenerate" : "Generate"}
+          </button>
+        </div>
+        {aiError && <div className="cc-brief-note warn">AI unavailable: {aiError}</div>}
+        {aiNarrative && <pre className="ai-journal-result" style={{ marginTop: 4 }}>{aiNarrative}</pre>}
+        {!aiNarrative && !aiError && !aiLoading && (
+          <div className="cc-brief-note muted">
+            Click Generate for a Claude-written institutional read on today's setup.
+          </div>
+        )}
+      </div>
 
       {/* Mental readiness */}
       <div className="cc-brief-block">

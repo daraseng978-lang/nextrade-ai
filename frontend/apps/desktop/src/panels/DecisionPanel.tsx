@@ -1,11 +1,34 @@
+import { useEffect, useState } from "react";
 import { useWorkstation } from "../state/WorkstationContext";
 import { STRATEGIES } from "../engine/strategies";
+import { aiTradeReasoning } from "../engine/ai";
 
 export function DecisionPanel() {
-  const { selected } = useWorkstation();
+  const { selected, providerConfig } = useWorkstation();
   const c = selected.candidate;
   const meta = STRATEGIES[c.strategy];
   const blocked = selected.state === "hard_blocked";
+
+  // AI commentary — refresh whenever the selected candidate id changes.
+  // Never blocks render; shows loading/error inline.
+  const [aiText, setAiText] = useState<string | null>(null);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setAiText(null);
+    setAiErr(null);
+    if (blocked || c.reasons.length === 0) return;
+    setAiLoading(true);
+    aiTradeReasoning(providerConfig.restUrl, selected).then((r) => {
+      if (cancelled) return;
+      setAiLoading(false);
+      if (r.ok && r.data) setAiText(r.data.commentary);
+      else setAiErr(r.error ?? "unknown error");
+    });
+    return () => { cancelled = true; };
+  }, [selected.id, blocked, providerConfig.restUrl]);
+
   return (
     <section>
       <div className="panel">
@@ -35,6 +58,17 @@ export function DecisionPanel() {
           <Cell label="Final Contracts" value={String(selected.sizing.finalContracts)} />
         </div>
       </div>
+
+      {!blocked && c.reasons.length > 0 && (
+        <div className="reason-list">
+          <strong>🤖 AI desk analyst</strong>
+          <p style={{ marginTop: 6 }}>
+            {aiLoading && <em style={{ color: "var(--muted)" }}>Analyzing setup…</em>}
+            {aiErr && <em style={{ color: "var(--muted)" }}>AI unavailable: {aiErr}</em>}
+            {aiText}
+          </p>
+        </div>
+      )}
 
       <div className="reason-list">
         <strong>Why this won</strong>
