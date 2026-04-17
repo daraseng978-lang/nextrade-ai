@@ -52,15 +52,26 @@ export async function fetchIntradayBars(
   return payload.bars ?? [];
 }
 
-// Daily bars — last 5 trading days for prior-H/L + liquidity baseline.
+// Daily bars — last ~15 calendar days windowed back from yesterday so
+// we catch at least 5 trading days' worth of prior-H/L + liquidity
+// baseline. The explicit `start` + `end` params are friendlier than
+// `limit` alone on the free IEX tier, which sometimes returns an empty
+// array when only `limit` is specified.
 export async function fetchDailyBars(
   cfg: AlpacaConfig,
   symbol: string,
-  limit: number = 5,
+  limit: number = 10,
 ): Promise<AlpacaBar[]> {
+  const end = new Date();
+  // Shift end one day back to make sure we only ask for completed sessions.
+  end.setUTCDate(end.getUTCDate() - 1);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 20); // 20 calendar days ≈ 14 trading
   const url =
     `${DATA_HOST}/stocks/${encodeURIComponent(symbol)}/bars` +
     `?timeframe=1Day` +
+    `&start=${encodeURIComponent(start.toISOString())}` +
+    `&end=${encodeURIComponent(end.toISOString())}` +
     `&limit=${limit}` +
     `&feed=${cfg.feed}` +
     `&adjustment=raw`;
