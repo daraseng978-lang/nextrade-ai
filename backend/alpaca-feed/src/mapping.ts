@@ -12,9 +12,10 @@ import type { Instrument } from "./types.js";
 
 export interface SymbolMapping {
   futures: Instrument;
-  etf: string;         // Alpaca symbol to fetch
-  multiplier: number;  // futures_price ≈ etf_price * multiplier
-  yahooSymbol: string; // Yahoo Finance symbol (real futures, keyless, ~15min delay)
+  etf: string;             // Alpaca symbol to fetch
+  multiplier: number;      // futures_price ≈ etf_price * multiplier
+  yahooSymbol: string;     // Yahoo Finance symbol (ES=F, NQ=F, …)
+  twelveDataSymbol: string; // Twelve Data symbol (ES, NQ, YM, RTY, CL, GC)
 }
 
 export const SYMBOL_MAPPINGS: SymbolMapping[] = [
@@ -27,6 +28,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "SPY",
     multiplier: 10.0, // SPY ≈ S&P / 10; MES tracks S&P × 1
     yahooSymbol: "ES=F",
+    twelveDataSymbol: "ES",
   },
   {
     futures: {
@@ -37,6 +39,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "QQQ",
     multiplier: 50.0, // QQQ ≈ Nasdaq / 40; MNQ tracks Nasdaq × 1
     yahooSymbol: "NQ=F",
+    twelveDataSymbol: "NQ",
   },
   {
     futures: {
@@ -47,6 +50,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "DIA",
     multiplier: 100.0, // DIA ≈ Dow / 100
     yahooSymbol: "YM=F",
+    twelveDataSymbol: "YM",
   },
   {
     futures: {
@@ -57,6 +61,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "IWM",
     multiplier: 10.0,
     yahooSymbol: "RTY=F",
+    twelveDataSymbol: "RTY",
   },
   {
     futures: {
@@ -67,6 +72,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "USO",
     multiplier: 0.85, // USO tracks WTI but with contango decay; tune as needed
     yahooSymbol: "CL=F",
+    twelveDataSymbol: "CL",
   },
   {
     futures: {
@@ -77,6 +83,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "GLD",
     multiplier: 11.0, // GLD ≈ gold_price / 10 per share; small tracking offset
     yahooSymbol: "GC=F",
+    twelveDataSymbol: "GC",
   },
 ];
 

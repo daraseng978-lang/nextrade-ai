@@ -4,6 +4,7 @@ import cron from "node-cron";
 import dotenv from "dotenv";
 import { fetchDailyBars, fetchIntradayBars, fetchLatestQuote, type AlpacaConfig } from "./alpaca.js";
 import { fetchYahooBundle, fetchYahooDailyBars } from "./yahoo.js";
+import { fetchTwelveDataDailyBars } from "./twelveData.js";
 import { fetchCrossMarketSnapshot, type CrossMarketSnapshot } from "./crossMarket.js";
 import {
   atrFromBars,
@@ -58,6 +59,10 @@ const {
   // well under the rate limit.
   HYBRID_YAHOO_DAILIES = "true",
   HYBRID_YAHOO_DAILIES_CRON = "0 0 8 * * 1-5", // 8:00am ET, before RTH open
+  // Twelve Data — free 800 req/day tier. Used as a fallback when Yahoo
+  // is rate-limited or slow. Sign up at twelvedata.com and paste the
+  // key here. Leave blank to disable.
+  TWELVEDATA_API_KEY = "",
 } = process.env;
 
 const provider: "alpaca" | "yahoo" = MARKET_PROVIDER === "yahoo" ? "yahoo" : "alpaca";
@@ -308,27 +313,42 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
 // Pull Yahoo daily bars for each mapped symbol once and stash in
 // `yahooDailyCache`. Used by hybrid mode (provider=alpaca) to fill in
 // the priorHigh/priorLow that IEX daily bars are too sparse to provide.
-// Serial, paced (yahoo.ts handles throttling). Runs at most once/day.
+// Fallback chain per symbol:
+//   1. Yahoo Finance (keyless, but flakey under rate-limit)
+//   2. Twelve Data (needs TWELVEDATA_API_KEY, 800 req/day free tier)
+// Cache is keyed by yahoo symbol so the lookup in buildContextFor is
+// unchanged regardless of which provider actually filled it.
 async function refreshYahooDailies(): Promise<void> {
-  console.log("[hybrid-yahoo-daily] refreshing daily bars for all symbols...");
-  let ok = 0, fail = 0;
+  console.log("[hybrid-daily] refreshing daily bars for all symbols...");
+  let yahoo = 0, twelve = 0, fail = 0;
   for (const mapping of SYMBOL_MAPPINGS) {
+    let filled = false;
     try {
       const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
       if (bars.length >= 2) {
         yahooDailyCache.set(mapping.yahooSymbol, bars);
-        ok++;
-      } else {
-        console.warn(`[hybrid-yahoo-daily] ${mapping.yahooSymbol} returned ${bars.length} bars — skipping`);
-        fail++;
+        yahoo++;
+        filled = true;
       }
     } catch (err) {
-      console.warn(`[hybrid-yahoo-daily] ${mapping.yahooSymbol} failed: ${err instanceof Error ? err.message : err}`);
-      fail++;
+      console.warn(`[hybrid-daily] ${mapping.yahooSymbol} Yahoo failed: ${err instanceof Error ? err.message : err}`);
     }
+    if (!filled && TWELVEDATA_API_KEY) {
+      try {
+        const bars = await fetchTwelveDataDailyBars(mapping.twelveDataSymbol, TWELVEDATA_API_KEY);
+        if (bars.length >= 2) {
+          yahooDailyCache.set(mapping.yahooSymbol, bars); // reuse the same cache slot
+          twelve++;
+          filled = true;
+        }
+      } catch (err) {
+        console.warn(`[hybrid-daily] ${mapping.twelveDataSymbol} Twelve Data failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    if (!filled) fail++;
   }
   yahooDailyLastRefresh = Date.now();
-  console.log(`[hybrid-yahoo-daily] done — ${ok} ok, ${fail} failed`);
+  console.log(`[hybrid-daily] done — yahoo=${yahoo}, twelvedata=${twelve}, failed=${fail}`);
 }
 
 async function buildSnapshot(): Promise<InstrumentContext[]> {
@@ -717,6 +737,7 @@ app.listen(port, () => {
   console.log(`[alpaca-feed] listening on http://localhost:${port}`);
   console.log(`[alpaca-feed] provider=${provider}${provider === "alpaca" ? ` feed=${alpacaCfg.feed}` : " (Yahoo Finance, ~15min delay)"} symbols=${SYMBOL_MAPPINGS.map(m => m.futures.symbol).join(",")}`);
   console.log(`[alpaca-feed] cross-market (VIX/DXY/10y): ${CROSS_MARKET_ENABLED === "true" ? "ENABLED" : "DISABLED"}`);
+  console.log(`[alpaca-feed] Twelve Data fallback: ${TWELVEDATA_API_KEY ? "ENABLED" : "DISABLED (no TWELVEDATA_API_KEY)"}`);
   console.log(`[alpaca-feed] AI (Claude): ${aiConfigured() ? `ENABLED (${process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001"})` : "DISABLED (no ANTHROPIC_API_KEY)"}`);
   if (TRADERSPOST_WEBHOOK_URL) {
     console.log(`[alpaca-feed] tradersPost webhook: ${redactWebhook(TRADERSPOST_WEBHOOK_URL)}`);
