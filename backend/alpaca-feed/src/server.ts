@@ -100,6 +100,11 @@ let cachedCrossMarket: { at: number; snapshot: CrossMarketSnapshot } | null = nu
 const yahooDailyCache: Map<string, AlpacaBar[]> = new Map();
 let yahooDailyLastRefresh = 0;
 
+// Runtime-calibrated multipliers (futures_close / etf_close). Recomputed
+// after each hybrid daily refresh. Falls back to mapping.multiplier when
+// calibration data isn't available (e.g. Yahoo rate-limited at startup).
+const calibratedMultipliers: Map<string, number> = new Map();
+
 async function getCrossMarketSnapshot(): Promise<CrossMarketSnapshot> {
   const now = Date.now();
   if (cachedCrossMarket && now - cachedCrossMarket.at < crossMarketTtl) {
@@ -155,7 +160,7 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
   // Hybrid: prefer Yahoo's consolidated futures daily bars for priorH/L
   // (Alpaca IEX daily bars are IEX-routed only → distorted). Yahoo bars
   // are already in futures-price-space so we don't scale them.
-  const m = mapping.multiplier;
+  const m = calibratedMultipliers.get(mapping.futures.symbol) ?? mapping.multiplier;
   const yahooDaily = yahooDailyCache.get(mapping.yahooSymbol);
   let priorHigh = scale(etfPD.high, m);
   let priorLow = scale(etfPD.low, m);
@@ -353,6 +358,46 @@ async function refreshYahooDailies(): Promise<void> {
   }
   yahooDailyLastRefresh = Date.now();
   console.log(`[hybrid-daily] done — yahoo=${yahoo}, twelvedata=${twelve}, failed=${fail}`);
+  await calibrateMultipliers().catch(err =>
+    console.warn("[calibrate] error:", err instanceof Error ? err.message : err),
+  );
+}
+
+async function calibrateMultipliers(): Promise<void> {
+  const results: string[] = [];
+  for (const mapping of SYMBOL_MAPPINGS) {
+    let futuresClose: number | null = null;
+
+    // Native futures in cache (ES, CL): bars are already in futures-price-space.
+    if (!mapping.twelveDataNeedsScale) {
+      const cached = yahooDailyCache.get(mapping.yahooSymbol);
+      if (cached && cached.length > 0) futuresClose = cached[cached.length - 1].c;
+    }
+
+    // ETF-proxy symbols (NQ/YM/RTY) or cache miss: try a fresh Yahoo quote.
+    if (futuresClose === null) {
+      try {
+        const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
+        if (bars.length > 0) futuresClose = bars[bars.length - 1].c;
+      } catch { /* leave null — Yahoo may be rate-limited */ }
+    }
+
+    if (!futuresClose || futuresClose <= 0) continue;
+
+    try {
+      const etfBars = await fetchDailyBars(alpacaCfg, mapping.etf, 3);
+      if (etfBars.length === 0) continue;
+      const etfClose = etfBars[etfBars.length - 1].c;
+      if (etfClose <= 0) continue;
+      const ratio = parseFloat((futuresClose / etfClose).toFixed(4));
+      const prev = (calibratedMultipliers.get(mapping.futures.symbol) ?? mapping.multiplier).toFixed(2);
+      calibratedMultipliers.set(mapping.futures.symbol, ratio);
+      results.push(`${mapping.futures.symbol}=${ratio.toFixed(2)} (was ${prev})`);
+    } catch { /* skip — Alpaca may be unavailable */ }
+  }
+  if (results.length > 0) {
+    console.log(`[calibrate] ${results.join("  ")}`);
+  }
 }
 
 async function buildSnapshot(): Promise<InstrumentContext[]> {
