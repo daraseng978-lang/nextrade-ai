@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -15,12 +15,34 @@ import {
   simulateCapitalLab,
   type CapitalLabParams,
 } from "../engine/capitalLab";
+import { STRATEGIES, STRATEGY_LIST } from "../engine/strategies";
+import type { StrategyId } from "../engine/types";
 
 // Capital Lab = prop-firm readiness simulator.
 // Eval pass probability + funded lifecycle + Monte Carlo.
 export function CapitalLabPage() {
-  const { account } = useWorkstation();
+  const { account, capitalLabStrategy, setCapitalLabStrategy } = useWorkstation();
   const [overrides, setOverrides] = useState<Partial<CapitalLabParams>>({});
+
+  // When a playbook strategy is picked, seed the Monte Carlo edge params
+  // from its preset. The user can still fine-tune via the input rows —
+  // those fine-tunes live in `overrides` and win over the preset.
+  const presetOverrides = useMemo<Partial<CapitalLabParams>>(() => {
+    if (!capitalLabStrategy) return {};
+    const edge = STRATEGIES[capitalLabStrategy].edge;
+    return {
+      winRate: edge.winRate,
+      avgWinR: edge.avgWinR,
+      avgLossR: edge.avgLossR,
+      tradesPerDay: edge.tradesPerDay,
+    };
+  }, [capitalLabStrategy]);
+
+  // Reset fine-tune overrides whenever the picker changes so the preset
+  // actually takes effect instead of being masked by stale overrides.
+  useEffect(() => {
+    setOverrides({});
+  }, [capitalLabStrategy]);
 
   const params = useMemo<CapitalLabParams>(() => {
     const base = buildDefaultParams(
@@ -29,8 +51,8 @@ export function CapitalLabPage() {
       account.maxDailyLossPct,
       account.consistencyTargetPct,
     );
-    return { ...base, ...overrides };
-  }, [account, overrides]);
+    return { ...base, ...presetOverrides, ...overrides };
+  }, [account, presetOverrides, overrides]);
 
   const result = useMemo(() => simulateCapitalLab(params), [params]);
 
@@ -54,9 +76,43 @@ export function CapitalLabPage() {
   const trailingFloor = params.accountEquity - params.accountEquity * params.maxDrawdownPct;
   const readiness = readinessTier(result.passRate, result.expectancyR);
 
+  const activePlaybook = capitalLabStrategy ? STRATEGIES[capitalLabStrategy] : null;
+
   return (
     <div className="page-grid capital-lab-grid">
       <aside className="column left">
+        <section className="panel">
+          <h2>Playbook under test</h2>
+          <small>Pick one of your 12 strategies to seed the Monte Carlo edge.</small>
+          <div style={{ marginTop: 10 }}>
+            <select
+              className="exec-block"
+              style={{ width: "100%" }}
+              value={capitalLabStrategy ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCapitalLabStrategy(v === "" ? null : (v as StrategyId));
+              }}
+            >
+              <option value="">Custom (no preset)</option>
+              {STRATEGY_LIST.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+          {activePlaybook && (
+            <table className="kv" style={{ marginTop: 10 }}>
+              <tbody>
+                <tr><td className="k">Family</td><td>{activePlaybook.family}</td></tr>
+                <tr><td className="k">Preset win rate</td><td>{(activePlaybook.edge.winRate * 100).toFixed(0)}%</td></tr>
+                <tr><td className="k">Preset avg win / loss</td>
+                  <td>{activePlaybook.edge.avgWinR.toFixed(1)}R / {activePlaybook.edge.avgLossR.toFixed(1)}R</td>
+                </tr>
+                <tr><td className="k">Trades / day</td><td>{activePlaybook.edge.tradesPerDay}</td></tr>
+              </tbody>
+            </table>
+          )}
+        </section>
         <section className="panel">
           <h2>Simulation Inputs</h2>
           <small>Edge &amp; rules for the Monte Carlo engine.</small>

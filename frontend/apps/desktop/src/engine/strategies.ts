@@ -10,6 +10,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Reclaim back inside opening range.",
     defaultStopAtrMult: 0.9,
     defaultTargetR: 2.0,
+    edge: { winRate: 0.44, avgWinR: 2.0, avgLossR: 1.0, tradesPerDay: 2 },
   },
   expansion_breakout: {
     id: "expansion_breakout",
@@ -20,6 +21,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Price re-enters prior value area within one bar.",
     defaultStopAtrMult: 1.0,
     defaultTargetR: 2.2,
+    edge: { winRate: 0.42, avgWinR: 2.2, avgLossR: 1.0, tradesPerDay: 1 },
   },
   breakout_continuation: {
     id: "breakout_continuation",
@@ -30,6 +32,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Close back through breakout pivot.",
     defaultStopAtrMult: 0.8,
     defaultTargetR: 1.8,
+    edge: { winRate: 0.48, avgWinR: 1.8, avgLossR: 1.0, tradesPerDay: 2 },
   },
   trend_pullback_continuation: {
     id: "trend_pullback_continuation",
@@ -40,6 +43,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Lose VWAP / prior swing pivot.",
     defaultStopAtrMult: 1.0,
     defaultTargetR: 2.0,
+    edge: { winRate: 0.50, avgWinR: 2.0, avgLossR: 1.0, tradesPerDay: 2 },
   },
   balanced_auction_rotation: {
     id: "balanced_auction_rotation",
@@ -50,6 +54,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Breakout acceptance outside value area.",
     defaultStopAtrMult: 0.7,
     defaultTargetR: 1.5,
+    edge: { winRate: 0.58, avgWinR: 1.5, avgLossR: 1.0, tradesPerDay: 3 },
   },
   balanced_range: {
     id: "balanced_range",
@@ -60,6 +65,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Close outside range mid.",
     defaultStopAtrMult: 0.6,
     defaultTargetR: 1.3,
+    edge: { winRate: 0.60, avgWinR: 1.3, avgLossR: 1.0, tradesPerDay: 3 },
   },
   vwap_reclaim_mean_reversion: {
     id: "vwap_reclaim_mean_reversion",
@@ -70,6 +76,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Rejection back through VWAP.",
     defaultStopAtrMult: 0.9,
     defaultTargetR: 1.8,
+    edge: { winRate: 0.52, avgWinR: 1.8, avgLossR: 1.0, tradesPerDay: 2 },
   },
   counter_trend_fade_failed_breakout: {
     id: "counter_trend_fade_failed_breakout",
@@ -80,6 +87,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "New high / low beyond failed pivot.",
     defaultStopAtrMult: 0.9,
     defaultTargetR: 2.0,
+    edge: { winRate: 0.46, avgWinR: 2.0, avgLossR: 1.0, tradesPerDay: 1 },
   },
   liquidity_sweep_and_reclaim: {
     id: "liquidity_sweep_and_reclaim",
@@ -90,6 +98,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "Failure to reclaim within 2 bars.",
     defaultStopAtrMult: 1.0,
     defaultTargetR: 2.0,
+    edge: { winRate: 0.50, avgWinR: 2.0, avgLossR: 1.0, tradesPerDay: 1 },
   },
   reversal_mean_reversion: {
     id: "reversal_mean_reversion",
@@ -100,6 +109,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "New extreme beyond reversal pivot.",
     defaultStopAtrMult: 1.1,
     defaultTargetR: 2.2,
+    edge: { winRate: 0.44, avgWinR: 2.2, avgLossR: 1.0, tradesPerDay: 1 },
   },
   low_quality_no_trade: {
     id: "low_quality_no_trade",
@@ -110,6 +120,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "N/A",
     defaultStopAtrMult: 0.8,
     defaultTargetR: 1.2,
+    edge: { winRate: 0.35, avgWinR: 1.2, avgLossR: 1.0, tradesPerDay: 1 },
   },
   event_driven_high_risk: {
     id: "event_driven_high_risk",
@@ -120,6 +131,7 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
     invalidation: "N/A",
     defaultStopAtrMult: 0,
     defaultTargetR: 0,
+    edge: { winRate: 0, avgWinR: 0, avgLossR: 1.0, tradesPerDay: 0 },
   },
 };
 

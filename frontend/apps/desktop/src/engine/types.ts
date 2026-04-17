@@ -57,6 +57,13 @@ export interface InstrumentContext {
   spread: number;
 }
 
+export interface StrategyEdge {
+  winRate: number;      // 0..1 — historical/expected win rate
+  avgWinR: number;      // avg R multiple on winners
+  avgLossR: number;     // avg R multiple on losers (usually 1.0 with hard stop)
+  tradesPerDay: number; // typical trigger count per session
+}
+
 export interface StrategyMeta {
   id: StrategyId;
   label: string;
@@ -66,6 +73,7 @@ export interface StrategyMeta {
   invalidation: string;
   defaultStopAtrMult: number;
   defaultTargetR: number;
+  edge: StrategyEdge;
 }
 
 export interface PlaybookCandidate {
