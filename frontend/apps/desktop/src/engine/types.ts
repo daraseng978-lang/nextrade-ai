@@ -57,6 +57,13 @@ export interface InstrumentContext {
   spread: number;
 }
 
+export interface StrategyEdge {
+  winRate: number;      // 0..1 — historical/expected win rate
+  avgWinR: number;      // avg R multiple on winners
+  avgLossR: number;     // avg R multiple on losers (usually 1.0 with hard stop)
+  tradesPerDay: number; // typical trigger count per session
+}
+
 export interface StrategyMeta {
   id: StrategyId;
   label: string;
@@ -66,6 +73,36 @@ export interface StrategyMeta {
   invalidation: string;
   defaultStopAtrMult: number;
   defaultTargetR: number;
+  edge: StrategyEdge;
+}
+
+export interface ScoreBreakdown {
+  regime: number;      // regime fit contribution
+  confidence: number;  // regime confidence contribution
+  liquidity: number;   // liquidity contribution
+  edge: number;        // Capital Lab + journal blended edge contribution
+  side: number;        // side alignment contribution
+  event: number;       // event-risk penalty (negative)
+  crossMarket: number; // VIX/DXY risk-on/off adjustment (±, can be 0)
+  total: number;       // clamped to [0..1]
+  realizedN: number;   // number of closed journal trades feeding the edge
+}
+
+export type RegimeBias = "risk_on" | "risk_off" | "neutral";
+
+export interface CrossMarketTicker {
+  symbol: string;
+  price: number;
+  previousClose: number;
+  changePct: number;
+}
+
+export interface CrossMarketSnapshot {
+  vix: CrossMarketTicker | null;
+  dxy: CrossMarketTicker | null;
+  tnx: CrossMarketTicker | null;
+  regimeBias: RegimeBias;
+  summary: string;
 }
 
 export interface PlaybookCandidate {
@@ -82,6 +119,7 @@ export interface PlaybookCandidate {
   rMultiple: number;
   rawScore: number;       // 0..1
   reasons: string[];
+  scoreBreakdown?: ScoreBreakdown;
 }
 
 export interface ValidationProfile {

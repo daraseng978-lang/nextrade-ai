@@ -1,10 +1,12 @@
 import type {
   AccountRiskConfig,
+  CrossMarketSnapshot,
   InstrumentContext,
   PlaybookCandidate,
   SelectedSignal,
   TradeState,
 } from "./types";
+import type { JournalEntry } from "./journal";
 import { candidatesForRegime, buildCandidate } from "./playbooks";
 import { STRATEGIES } from "./strategies";
 import {
@@ -15,11 +17,15 @@ import {
 import { sizeTrade } from "./sizing";
 
 // Decision engine: from context → best available trade, runner-ups,
-// validation profile, final sizing and trade state.
+// validation profile, final sizing and trade state. Pass `journal` so
+// the rawScore edge factor can blend Capital Lab presets with realized
+// outcomes (Bayesian-shrunk).
 export function decide(
   ctx: InstrumentContext,
   account: AccountRiskConfig,
   killSwitch = false,
+  journal: JournalEntry[] = [],
+  crossMarket: CrossMarketSnapshot | null = null,
 ): SelectedSignal {
   const hardBlock = evaluateHardBlock(ctx, killSwitch);
   const now = new Date().toISOString();
@@ -27,7 +33,7 @@ export function decide(
   // Build candidates from the regime → strategy map.
   const strategyIds = candidatesForRegime(ctx.regime);
   const built: PlaybookCandidate[] = strategyIds
-    .map((id) => buildCandidate(id, ctx))
+    .map((id) => buildCandidate(id, ctx, journal, crossMarket))
     .filter((c): c is PlaybookCandidate => c !== null);
 
   // Sort by raw score descending, then by tighter stop (cheaper probe).

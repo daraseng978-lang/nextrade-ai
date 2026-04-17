@@ -1,5 +1,7 @@
-import type { InstrumentContext } from "./types";
+import type { CrossMarketSnapshot, CrossMarketTicker, InstrumentContext } from "./types";
 import { mockContexts } from "./mockData";
+
+export type { CrossMarketSnapshot, CrossMarketTicker };
 
 // Pluggable market data provider.
 // Every provider returns the same InstrumentContext[] shape so the
@@ -20,6 +22,7 @@ export interface FeedSnapshot {
   receivedAt: string;      // ISO timestamp the payload was received
   latencyMs: number;       // how long the fetch took
   providerKind: MarketDataProviderKind;
+  crossMarket?: CrossMarketSnapshot | null;
 }
 
 export interface MarketDataProvider {
@@ -125,11 +128,14 @@ function makeRestProvider(url: string, apiKey?: string): MarketDataProvider {
         throw new Error("REST provider: payload is not an InstrumentContext[] or { contexts }");
       }
       validateContexts(contexts);
+      const crossMarket: CrossMarketSnapshot | null =
+        payload && !Array.isArray(payload) && payload.crossMarket ? payload.crossMarket : null;
       return {
         contexts,
         receivedAt: new Date().toISOString(),
         latencyMs: Date.now() - started,
         providerKind: "rest",
+        crossMarket,
       };
     },
   };

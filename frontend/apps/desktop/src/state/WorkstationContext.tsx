@@ -16,6 +16,7 @@ import type {
   PropFirmControl,
   RouteHealth,
   SelectedSignal,
+  StrategyId,
   TimeframeId,
   WorkstationPage,
 } from "../engine/types";
@@ -41,6 +42,7 @@ import {
   buildMarketDataProvider,
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_PROVIDER_CONFIG,
+  type CrossMarketSnapshot,
   type MarketDataProviderConfig,
   type MarketDataProviderKind,
 } from "../engine/marketDataProvider";
@@ -87,6 +89,11 @@ interface WorkstationState {
   page: WorkstationPage;
   setPage: (p: WorkstationPage) => void;
 
+  // Capital Lab — which playbook strategy is under validation.
+  // `null` means "use the active signal's strategy".
+  capitalLabStrategy: StrategyId | null;
+  setCapitalLabStrategy: (s: StrategyId | null) => void;
+
   chartViewMode: ChartViewMode;
   setChartViewMode: (m: ChartViewMode) => void;
   focusTimeframe: TimeframeId;
@@ -129,6 +136,9 @@ interface WorkstationState {
   feedLatencyMs: number | null;
   feedError: string | null;
   refreshFeed: () => void;
+
+  // Cross-market context (VIX/DXY/10y) — null until backend snapshot carries one.
+  crossMarket: CrossMarketSnapshot | null;
 
   // TradersPost dispatch
   dispatchConfig: DispatchConfig;
@@ -238,6 +248,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [feedLastUpdate, setFeedLastUpdate] = useState<string | null>(null);
   const [feedLatencyMs, setFeedLatencyMs] = useState<number | null>(null);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [crossMarket, setCrossMarket] = useState<CrossMarketSnapshot | null>(null);
   const feedRefreshRef = useRef<(() => void) | null>(null);
 
   const [killSwitchForBrief, setKillSwitchForBrief] = useState(false);
@@ -261,6 +272,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   useEffect(() => { persistJournal(journal); }, [journal]);
 
   const [page, setPage] = useState<WorkstationPage>("desk");
+  const [capitalLabStrategy, setCapitalLabStrategy] = useState<StrategyId | null>(null);
   const [chartViewMode, setChartViewMode] = useState<ChartViewMode>("quad");
   const [focusTimeframe, setFocusTimeframe] = useState<TimeframeId>("5");
   const [chartTimeframes, setChartTimeframes] = useState<TimeframeId[]>(DEFAULT_QUAD_TIMEFRAMES);
@@ -304,10 +316,10 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
     for (const ctx of enrichedContexts) {
-      out[ctx.instrument.symbol] = decide(ctx, account, killSwitch);
+      out[ctx.instrument.symbol] = decide(ctx, account, killSwitch, journal, crossMarket);
     }
     return out;
-  }, [enrichedContexts, account, killSwitch]);
+  }, [enrichedContexts, account, killSwitch, journal, crossMarket]);
 
   const selected = signals[selectedSymbol] ?? signals[contexts[0].instrument.symbol];
 
@@ -398,6 +410,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
         setFeedLatencyMs(snap.latencyMs);
         setFeedError(null);
         setFeedStatus("live");
+        if (snap.crossMarket !== undefined) setCrossMarket(snap.crossMarket);
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
@@ -815,6 +828,8 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     deleteJournalEntry,
     page,
     setPage,
+    capitalLabStrategy,
+    setCapitalLabStrategy,
     chartViewMode,
     setChartViewMode,
     focusTimeframe,
@@ -848,6 +863,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     feedLatencyMs,
     feedError,
     refreshFeed,
+    crossMarket,
     dispatchConfig,
     setDispatchConfig,
     lastDispatchResult,
