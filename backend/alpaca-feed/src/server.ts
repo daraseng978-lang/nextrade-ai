@@ -4,6 +4,7 @@ import cron from "node-cron";
 import dotenv from "dotenv";
 import { fetchDailyBars, fetchIntradayBars, fetchLatestQuote, type AlpacaConfig } from "./alpaca.js";
 import { fetchYahooBundle, fetchYahooDailyBars } from "./yahoo.js";
+import { fetchTwelveDataDailyBars } from "./twelveData.js";
 import { fetchCrossMarketSnapshot, type CrossMarketSnapshot } from "./crossMarket.js";
 import {
   atrFromBars,
@@ -58,6 +59,10 @@ const {
   // well under the rate limit.
   HYBRID_YAHOO_DAILIES = "true",
   HYBRID_YAHOO_DAILIES_CRON = "0 0 8 * * 1-5", // 8:00am ET, before RTH open
+  // Twelve Data — free 800 req/day tier. Used as a fallback when Yahoo
+  // is rate-limited or slow. Sign up at twelvedata.com and paste the
+  // key here. Leave blank to disable.
+  TWELVEDATA_API_KEY = "",
 } = process.env;
 
 const provider: "alpaca" | "yahoo" = MARKET_PROVIDER === "yahoo" ? "yahoo" : "alpaca";
@@ -154,10 +159,33 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
   const yahooDaily = yahooDailyCache.get(mapping.yahooSymbol);
   let priorHigh = scale(etfPD.high, m);
   let priorLow = scale(etfPD.low, m);
+  let priorSource: "alpaca_iex" | "yahoo" | "atr_fallback" = "alpaca_iex";
+  let priorLevelsStale = false;
   if (yahooDaily && yahooDaily.length >= 2) {
     const yahooPD = priorDayHighLow(yahooDaily);
     priorHigh = yahooPD.high;
     priorLow = yahooPD.low;
+    priorSource = "yahoo";
+  }
+
+  // Sanity check: if priorHigh/priorLow deviate >15% from current futures-
+  // space price, they're almost certainly from a stale IEX aggregate (the
+  // IEX free tier reports daily bars only when trades happened on IEX,
+  // which for mega-liquid ETFs is sometimes MONTHS ago). Fall back to
+  // ATR-derived placeholders so we keep producing signals but don't put
+  // out obviously-wrong entries like MNQ @ 29302 when spot is 26800.
+  const futuresPrice = scale(etfPrice, m);
+  const futuresAtr = scale(etfAtr, m);
+  const priorHighStale = priorHigh > 0 && Math.abs(priorHigh - futuresPrice) / futuresPrice > 0.15;
+  const priorLowStale  = priorLow  > 0 && Math.abs(priorLow  - futuresPrice) / futuresPrice > 0.15;
+  if (priorHighStale || priorLowStale || priorHigh <= 0 || priorLow <= 0) {
+    if (futuresPrice > 0 && futuresAtr > 0) {
+      priorHigh = futuresPrice + 1.5 * futuresAtr;
+      priorLow  = futuresPrice - 1.5 * futuresAtr;
+      priorLevelsStale = true;
+      priorSource = "atr_fallback";
+      console.warn(`[sanity] ${mapping.futures.symbol}: priorH/L stale (spot ${futuresPrice.toFixed(2)}, got ${priorHigh.toFixed(2)}/${priorLow.toFixed(2)}) — using ATR fallback`);
+    }
   }
 
   // Scale everything else into futures-space so the decision engine
@@ -195,6 +223,8 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
     avgBarVolume: avgVol,
     vwapSlope: scale(slope, m),
     footprintAvailable: false, // no L1 tick data from Alpaca IEX free tier
+    priorLevelsStale,
+    priorLevelsSource: priorSource,
   };
 }
 
@@ -235,14 +265,34 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
   // plausible spread so downstream code doesn't divide by zero.
   const spread = mapping.futures.tickSize;
 
+  // Same sanity check as the Alpaca path — Yahoo usually has clean
+  // daily bars, but in degraded conditions (empty response, rate-
+  // limited retries exhausted) we can still end up with zeros or
+  // wildly stale numbers. ATR fallback keeps signals sane.
+  let priorHigh = pd.high;
+  let priorLow = pd.low;
+  let priorLevelsStale = false;
+  let priorLevelsSource: "alpaca_iex" | "yahoo" | "atr_fallback" = "yahoo";
+  const highStale = priorHigh > 0 && price > 0 && Math.abs(priorHigh - price) / price > 0.15;
+  const lowStale  = priorLow  > 0 && price > 0 && Math.abs(priorLow  - price) / price > 0.15;
+  if (highStale || lowStale || priorHigh <= 0 || priorLow <= 0) {
+    if (price > 0 && atr > 0) {
+      priorHigh = price + 1.5 * atr;
+      priorLow = price - 1.5 * atr;
+      priorLevelsStale = true;
+      priorLevelsSource = "atr_fallback";
+      console.warn(`[sanity] ${mapping.futures.symbol}: Yahoo priorH/L stale — using ATR fallback`);
+    }
+  }
+
   return {
     instrument: mapping.futures,
     price,
     atr,
     vwap,
     openingRange: { high: or.high, low: or.low },
-    priorHigh: pd.high,
-    priorLow: pd.low,
+    priorHigh,
+    priorLow,
     regime: regimeResult.regime,
     regimeConfidence: parseFloat(regimeResult.confidence.toFixed(3)),
     liquidityScore: parseFloat(regimeResult.liquidityScore.toFixed(3)),
@@ -255,33 +305,50 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
     avgBarVolume: avgVol,
     vwapSlope: slope,
     footprintAvailable: false,
+    priorLevelsStale,
+    priorLevelsSource,
   };
 }
 
 // Pull Yahoo daily bars for each mapped symbol once and stash in
 // `yahooDailyCache`. Used by hybrid mode (provider=alpaca) to fill in
 // the priorHigh/priorLow that IEX daily bars are too sparse to provide.
-// Serial, paced (yahoo.ts handles throttling). Runs at most once/day.
+// Fallback chain per symbol:
+//   1. Yahoo Finance (keyless, but flakey under rate-limit)
+//   2. Twelve Data (needs TWELVEDATA_API_KEY, 800 req/day free tier)
+// Cache is keyed by yahoo symbol so the lookup in buildContextFor is
+// unchanged regardless of which provider actually filled it.
 async function refreshYahooDailies(): Promise<void> {
-  console.log("[hybrid-yahoo-daily] refreshing daily bars for all symbols...");
-  let ok = 0, fail = 0;
+  console.log("[hybrid-daily] refreshing daily bars for all symbols...");
+  let yahoo = 0, twelve = 0, fail = 0;
   for (const mapping of SYMBOL_MAPPINGS) {
+    let filled = false;
     try {
       const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
       if (bars.length >= 2) {
         yahooDailyCache.set(mapping.yahooSymbol, bars);
-        ok++;
-      } else {
-        console.warn(`[hybrid-yahoo-daily] ${mapping.yahooSymbol} returned ${bars.length} bars — skipping`);
-        fail++;
+        yahoo++;
+        filled = true;
       }
     } catch (err) {
-      console.warn(`[hybrid-yahoo-daily] ${mapping.yahooSymbol} failed: ${err instanceof Error ? err.message : err}`);
-      fail++;
+      console.warn(`[hybrid-daily] ${mapping.yahooSymbol} Yahoo failed: ${err instanceof Error ? err.message : err}`);
     }
+    if (!filled && TWELVEDATA_API_KEY) {
+      try {
+        const bars = await fetchTwelveDataDailyBars(mapping.twelveDataSymbol, TWELVEDATA_API_KEY);
+        if (bars.length >= 2) {
+          yahooDailyCache.set(mapping.yahooSymbol, bars); // reuse the same cache slot
+          twelve++;
+          filled = true;
+        }
+      } catch (err) {
+        console.warn(`[hybrid-daily] ${mapping.twelveDataSymbol} Twelve Data failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    if (!filled) fail++;
   }
   yahooDailyLastRefresh = Date.now();
-  console.log(`[hybrid-yahoo-daily] done — ${ok} ok, ${fail} failed`);
+  console.log(`[hybrid-daily] done — yahoo=${yahoo}, twelvedata=${twelve}, failed=${fail}`);
 }
 
 async function buildSnapshot(): Promise<InstrumentContext[]> {
@@ -670,6 +737,7 @@ app.listen(port, () => {
   console.log(`[alpaca-feed] listening on http://localhost:${port}`);
   console.log(`[alpaca-feed] provider=${provider}${provider === "alpaca" ? ` feed=${alpacaCfg.feed}` : " (Yahoo Finance, ~15min delay)"} symbols=${SYMBOL_MAPPINGS.map(m => m.futures.symbol).join(",")}`);
   console.log(`[alpaca-feed] cross-market (VIX/DXY/10y): ${CROSS_MARKET_ENABLED === "true" ? "ENABLED" : "DISABLED"}`);
+  console.log(`[alpaca-feed] Twelve Data fallback: ${TWELVEDATA_API_KEY ? "ENABLED" : "DISABLED (no TWELVEDATA_API_KEY)"}`);
   console.log(`[alpaca-feed] AI (Claude): ${aiConfigured() ? `ENABLED (${process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001"})` : "DISABLED (no ANTHROPIC_API_KEY)"}`);
   if (TRADERSPOST_WEBHOOK_URL) {
     console.log(`[alpaca-feed] tradersPost webhook: ${redactWebhook(TRADERSPOST_WEBHOOK_URL)}`);

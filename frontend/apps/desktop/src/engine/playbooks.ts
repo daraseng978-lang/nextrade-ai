@@ -123,6 +123,20 @@ export function buildCandidate(
   // === Quality layers ======================================================
   const { quality, triggerRating, locationRating } = evaluateSetupQuality(ctx, meta, side, entry);
 
+  // === Stale-prior guard ===================================================
+  // Strategies that anchor entry at priorHigh/priorLow (breakout*, range
+  // fades, sweep, counter-trend fade) become unreliable when the feed's
+  // prior levels are ATR-fallback placeholders. Penalize location and
+  // add a visible warning. Trend/VWAP-reclaim strategies are unaffected.
+  const priorAnchored =
+    strategy === "expansion_breakout" ||
+    strategy === "breakout_continuation" ||
+    strategy === "balanced_auction_rotation" ||
+    strategy === "balanced_range" ||
+    strategy === "counter_trend_fade_failed_breakout" ||
+    strategy === "liquidity_sweep_and_reclaim";
+  const stalePriorPenalty = ctx.priorLevelsStale && priorAnchored ? -0.4 : 0;
+
   // === Structure-anchored stop ============================================
   const stopDecision = pickStructureStop(ctx, meta, side, entry, meta.defaultStopAtrMult);
   const stop = stopDecision.stop;
@@ -135,9 +149,10 @@ export function buildCandidate(
   const rMultiple = Math.abs(tp2 - entry) / stopDistance;
 
   // === Scoring ============================================================
+  const effectiveLocationRating = Math.max(-1, locationRating + stalePriorPenalty);
   const { score: rawScore, breakdown } = scoreCandidate(
     meta.id, ctx, side, journal, crossMarket,
-    { triggerRating, locationRating, footprintBonus: quality.footprintConfirmation.bonus },
+    { triggerRating, locationRating: effectiveLocationRating, footprintBonus: quality.footprintConfirmation.bonus },
   );
 
   // === Reason lines =======================================================
@@ -150,6 +165,12 @@ export function buildCandidate(
   reasons.push(`Stop: ${stopDecision.reason}`);
   if (tp1Tag !== "none") reasons.push(`TP1 anchored at ${tp1Tag}.`);
   if (stopDecision.downgrade) reasons.push("⚠ Wide structure stop — size reduced.");
+  if (ctx.priorLevelsStale) {
+    reasons.push(
+      `⚠ Prior H/L not reliable (source: ${ctx.priorLevelsSource ?? "unknown"}). ` +
+      `Using ATR fallback — treat levels as approximate until daily feed recovers.`,
+    );
+  }
 
   if (crossMarket && breakdown.crossMarket !== 0) {
     const tag = crossMarket.regimeBias === "risk_on" ? "risk-on" : crossMarket.regimeBias === "risk_off" ? "risk-off" : "neutral";

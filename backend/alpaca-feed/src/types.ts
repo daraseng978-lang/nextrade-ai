@@ -45,6 +45,10 @@ export interface InstrumentContext {
   footprintAvailable?: boolean;
   deltaLastBar?: number;
   cumulativeDelta?: number;
+  // Sanity-check flags — true when priorH/L was swapped in for garbage
+  // input (e.g. stale IEX daily aggregates).
+  priorLevelsStale?: boolean;
+  priorLevelsSource?: "alpaca_iex" | "yahoo" | "atr_fallback";
 }
 
 export interface AlpacaBar {
