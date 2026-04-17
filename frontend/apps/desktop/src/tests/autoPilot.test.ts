@@ -4,7 +4,7 @@ import { mockContexts } from "../engine/mockData";
 import { DEFAULT_ACCOUNT } from "../engine/sizing";
 import { buildPropFirmControl } from "../engine/propFirm";
 import { buildPreMarketBrief, enrichContextsWithBrief } from "../engine/preMarketChecklist";
-import { evaluateAutoPilot, AUTOPILOT_MIN_SCORE_DEFAULT } from "../engine/autoPilot";
+import { autoPilotSetupKey, evaluateAutoPilot, AUTOPILOT_MIN_SCORE_DEFAULT } from "../engine/autoPilot";
 
 function buildInputs() {
   const ctxs = enrichContextsWithBrief(mockContexts(), buildPreMarketBrief(mockContexts(), false));
@@ -129,7 +129,27 @@ describe("evaluateAutoPilot", () => {
     expect(d.reasonCode).toBe("daily_limit_reached");
   });
 
-  it("skips when the same signal id was already processed", () => {
+  it("skips when the same setup key was already processed", () => {
+    const { signal, brief, propFirm } = buildInputs();
+    // Use the stable setup key (symbol+strategy+regime+side) — the auto
+    // pilot no longer dedups on signal.id because that embeds a poll
+    // timestamp that rotates every 5 seconds.
+    const setupKey = autoPilotSetupKey(signal);
+    const d = evaluateAutoPilot({
+      autoPilot: true,
+      killSwitch: false,
+      signal: { ...signal, adjustedScore: 0.8 },
+      propFirm,
+      executionState: "draft",
+      brief,
+      autoTradeCount: 0,
+      lastProcessedSignalId: setupKey,
+    });
+    expect(d.action).toBe("skip");
+    expect(d.reasonCode).toBe("already_processed");
+  });
+
+  it("skips inside the per-symbol cooldown window", () => {
     const { signal, brief, propFirm } = buildInputs();
     const d = evaluateAutoPilot({
       autoPilot: true,
@@ -139,10 +159,27 @@ describe("evaluateAutoPilot", () => {
       executionState: "draft",
       brief,
       autoTradeCount: 0,
-      lastProcessedSignalId: signal.id,
+      lastProcessedSignalId: null, // different setup, but still inside cooldown
+      lastProcessedAt: Date.now() - 10 * 60 * 1000, // 10 min ago, cooldown = 30 min
     });
     expect(d.action).toBe("skip");
-    expect(d.reasonCode).toBe("already_processed");
+    expect(d.reasonCode).toBe("symbol_cooldown");
+  });
+
+  it("allows the next trade after the cooldown window expires", () => {
+    const { signal, brief, propFirm } = buildInputs();
+    const d = evaluateAutoPilot({
+      autoPilot: true,
+      killSwitch: false,
+      signal: { ...signal, adjustedScore: 0.8 },
+      propFirm,
+      executionState: "draft",
+      brief,
+      autoTradeCount: 0,
+      lastProcessedSignalId: null,
+      lastProcessedAt: Date.now() - 40 * 60 * 1000, // 40 min ago, past 30 min cooldown
+    });
+    expect(d.action).toBe("approve_and_send");
   });
 
   it("approves and sends when every guardrail passes", () => {

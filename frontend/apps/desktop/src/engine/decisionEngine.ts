@@ -82,7 +82,7 @@ export function decide(
   const validation = buildValidationProfile(ctx, best);
   const adjustedScore = applyValidationAdjustments(best.rawScore, validation);
   const sizing = sizeTrade(best, adjustedScore, account);
-  const state = deriveState(adjustedScore, sizing.finalContracts);
+  const state = deriveState(adjustedScore, sizing.finalContracts, best);
 
   return {
     id: signalId(ctx, best, now),
@@ -98,10 +98,36 @@ export function decide(
   };
 }
 
-function deriveState(adjustedScore: number, finalContracts: number): TradeState {
-  if (finalContracts === 0) return adjustedScore < 0.35 ? "stand_aside" : "watch_only";
-  if (adjustedScore >= 0.58) return "best_available";
-  return "reduced_size";
+// Maps score + sizing + quality to a trade state.
+//   stand_aside    — won't route, low overall signal
+//   watch_only     — interesting but don't pull trigger yet
+//   reduced_size   — route at smaller size (trade is imperfect)
+//   best_available — full-confidence trade
+//
+// Quality floor: trigger < -0.2 OR location < -0.3 downgrades one rung.
+// Both bad = downgrade two rungs. Matches the "quality over quantity"
+// product stance — a weak trigger or bad location should not carry a
+// "best available" label even if the base score is high.
+function deriveState(
+  adjustedScore: number,
+  finalContracts: number,
+  candidate: PlaybookCandidate,
+): TradeState {
+  const base =
+    finalContracts === 0
+      ? (adjustedScore < 0.35 ? "stand_aside" : "watch_only")
+      : (adjustedScore >= 0.58 ? "best_available" : "reduced_size");
+
+  const q = candidate.quality;
+  if (!q) return base;
+
+  let downgrades = 0;
+  if (q.triggerQuality < -0.2) downgrades += 1;
+  if (q.locationQuality < -0.3) downgrades += 1;
+
+  const ladder: TradeState[] = ["stand_aside", "watch_only", "reduced_size", "best_available"];
+  const idx = Math.max(0, ladder.indexOf(base) - downgrades);
+  return ladder[idx];
 }
 
 function signalId(

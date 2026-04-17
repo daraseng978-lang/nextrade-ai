@@ -16,7 +16,8 @@ export type AutoPilotReasonCode =
   | "compliance_failing"
   | "stand_aside_readiness"
   | "daily_limit_reached"
-  | "already_processed";
+  | "already_processed"
+  | "symbol_cooldown";
 
 export interface AutoPilotDecision {
   action: "approve_and_send" | "skip";
@@ -32,16 +33,26 @@ export interface AutoPilotInput {
   executionState: string;
   brief: PreMarketBrief;
   autoTradeCount: number;
+  // Stable setup key (symbol+strategy+regime+side) of the last
+  // auto-processed signal. Prefer this over signal.id — signal.id
+  // rotates every poll because it embeds the poll timestamp.
   lastProcessedSignalId: string | null;
   // Signals below this adjusted score are never auto-traded, regardless
   // of quality-cap ladder output. 0.65 = "best available" threshold.
   minAdjustedScore?: number;
+  // Per-symbol cooldown — even if the setup key changes legitimately
+  // (new strategy, new regime), we don't auto-fire more often than this
+  // on the same symbol. Prevents regime-flicker from spamming orders.
+  lastProcessedAt?: number | null;
+  minCooldownMs?: number;
 }
 
-export const AUTOPILOT_MIN_SCORE_DEFAULT = 0.65;
+export const AUTOPILOT_MIN_SCORE_DEFAULT = 0.72;
+export const AUTOPILOT_COOLDOWN_MS_DEFAULT = 30 * 60 * 1000; // 30 min per symbol
 
 export function evaluateAutoPilot(input: AutoPilotInput): AutoPilotDecision {
   const min = input.minAdjustedScore ?? AUTOPILOT_MIN_SCORE_DEFAULT;
+  const cooldown = input.minCooldownMs ?? AUTOPILOT_COOLDOWN_MS_DEFAULT;
   const { signal, propFirm, brief } = input;
 
   if (!input.autoPilot) {
@@ -75,8 +86,14 @@ export function evaluateAutoPilot(input: AutoPilotInput): AutoPilotDecision {
       `Daily auto-trade limit reached (${input.autoTradeCount}/${brief.mentalReadiness.suggestedMaxTrades}).`,
     );
   }
-  if (input.lastProcessedSignalId === signal.id) {
-    return skip("already_processed", "This signal was already auto-processed.");
+  if (input.lastProcessedSignalId === autoPilotSetupKey(signal)) {
+    return skip("already_processed", "This setup was already auto-processed.");
+  }
+  // Per-symbol cooldown — fires even across different setup keys on the
+  // same symbol, so regime flicker can't push out multiple orders back-to-back.
+  if (input.lastProcessedAt && Date.now() - input.lastProcessedAt < cooldown) {
+    const remaining = Math.ceil((cooldown - (Date.now() - input.lastProcessedAt)) / 60000);
+    return skip("symbol_cooldown", `Symbol cooldown active — ${remaining} min before next auto-trade on ${signal.candidate.instrument.symbol}.`);
   }
 
   return {
@@ -84,6 +101,13 @@ export function evaluateAutoPilot(input: AutoPilotInput): AutoPilotDecision {
     reasonCode: "ok",
     reason: `Guardrails passed · adj ${signal.adjustedScore.toFixed(2)} · ${signal.sizing.finalContracts} ct · readiness ${brief.mentalReadiness.sessionReadiness}.`,
   };
+}
+
+// Stable identity for a signal — use this for auto-pilot dedup instead
+// of signal.id (which changes every poll).
+export function autoPilotSetupKey(signal: SelectedSignal): string {
+  const c = signal.candidate;
+  return `${c.instrument.symbol}-${c.strategy}-${c.regime}-${c.side}`;
 }
 
 function skip(code: AutoPilotReasonCode, reason: string): AutoPilotDecision {
