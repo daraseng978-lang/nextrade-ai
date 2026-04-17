@@ -3,9 +3,9 @@ import { useWorkstation } from "../state/WorkstationContext";
 import { generatePineScript, buildAlertPayload } from "../engine/pineGenerator";
 
 export function PineStudioPanel() {
-  const { selected } = useWorkstation();
+  const { selected, preMarketBrief } = useWorkstation();
   const [tab, setTab] = useState<"script" | "alert">("script");
-  const script = useMemo(() => generatePineScript(selected), [selected]);
+  const script = useMemo(() => generatePineScript(selected, preMarketBrief), [selected, preMarketBrief]);
   const alertPayload = useMemo(() => buildAlertPayload(selected), [selected]);
   return (
     <div className="panel">

@@ -180,6 +180,18 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     [pushEvent],
   );
 
+  // Auto-arm kill switch when Reggie's mental readiness says stand_aside.
+  // Only fires when kill switch is currently off — prevents false disarm later.
+  useEffect(() => {
+    if (
+      preMarketBrief.mentalReadiness.sessionReadiness === "stand_aside" &&
+      !killSwitch
+    ) {
+      setKillSwitch(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preMarketBrief.mentalReadiness.sessionReadiness]);
+
   // Force execution state to reflect objective conditions.
   useEffect(() => {
     if (selected.hardBlock.active) {
