@@ -2004,6 +2004,30 @@ table.kv td.k {
   color: var(--muted);
 }
 
+.signal-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.signal-log-row {
+  display: grid;
+  grid-template-columns: 70px 60px 50px 1fr 120px 110px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-left: 2px solid var(--border);
+  background: var(--panel-alt, rgba(255,255,255,0.02));
+}
+.signal-log-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.signal-log-sym { font-weight: 700; }
+.signal-log-strat, .signal-log-regime { color: var(--muted); font-size: 11px; }
+.signal-log-score { color: var(--muted); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+
 .ai-journal-result {
   margin-top: 12px;
   padding: 16px;
