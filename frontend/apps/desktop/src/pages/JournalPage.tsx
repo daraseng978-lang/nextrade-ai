@@ -10,6 +10,7 @@ import {
 } from "../engine/journal";
 import { INSTRUMENTS } from "../engine/instruments";
 import { aiJournalAnalysis } from "../engine/ai";
+import { summarizeSignalLog } from "../engine/signalLog";
 
 function pointValueFor(symbol: string): number {
   return INSTRUMENTS.find((i) => i.symbol === symbol)?.pointValue ?? 1;
@@ -37,6 +38,8 @@ export function JournalPage() {
     <div className="page-grid journal-grid">
       <main className="column wide">
         <PerformancePanel />
+
+        <SignalLogPanel />
 
         <AiAnalysisPanel />
 
@@ -482,6 +485,108 @@ function KV({ k, v }: { k: string; v: string }) {
       <div className="trade-kv-k">{k}</div>
       <div className="trade-kv-v">{v}</div>
     </div>
+  );
+}
+
+// =================================================================
+// Signal Log panel — audits every unique setup the scanner emits
+// across ALL 6 instruments, per-symbol counts + recent list.
+// =================================================================
+
+function SignalLogPanel() {
+  const { signalLog, clearSignalLog } = useWorkstation();
+  const [symbolFilter, setSymbolFilter] = useState<string>("all");
+  const [windowHours, setWindowHours] = useState<number>(24);
+
+  const summary = useMemo(
+    () => summarizeSignalLog(signalLog, windowHours * 60 * 60 * 1000),
+    [signalLog, windowHours],
+  );
+  const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
+  const filtered = useMemo(
+    () => signalLog
+      .filter(e => new Date(e.timestamp).getTime() >= cutoff)
+      .filter(e => symbolFilter === "all" || e.symbol === symbolFilter)
+      .slice(0, 100),
+    [signalLog, symbolFilter, cutoff],
+  );
+
+  const symbols = Array.from(new Set(signalLog.map(e => e.symbol))).sort();
+
+  return (
+    <section className="panel">
+      <div className="journal-head">
+        <div>
+          <h2>📡 Signal Log</h2>
+          <small>
+            Every unique setup the scanner emits, across all 6 instruments.
+            Use this to see where noise comes from. {summary.total} signals in
+            the last {windowHours}h ({summary.uniqueSetupsToday} unique setups).
+          </small>
+        </div>
+        <button
+          className="journal-filter-chip"
+          onClick={() => {
+            if (confirm("Clear the entire signal log? This cannot be undone.")) clearSignalLog();
+          }}
+          style={{ fontSize: 12, padding: "4px 10px" }}
+        >
+          Clear log
+        </button>
+      </div>
+
+      <div className="journal-filters" style={{ marginTop: 8 }}>
+        <button
+          className={`journal-filter-chip ${symbolFilter === "all" ? "active" : ""}`}
+          onClick={() => setSymbolFilter("all")}
+        >
+          All <span className="journal-filter-count">{summary.total}</span>
+        </button>
+        {symbols.map(s => (
+          <button
+            key={s}
+            className={`journal-filter-chip ${symbolFilter === s ? "active" : ""}`}
+            onClick={() => setSymbolFilter(s)}
+          >
+            {s} <span className="journal-filter-count">{summary.bySymbol[s] ?? 0}</span>
+          </button>
+        ))}
+        <select
+          value={windowHours}
+          onChange={(e) => setWindowHours(Number(e.target.value))}
+          style={{ marginLeft: "auto", background: "transparent", color: "inherit", border: "1px solid var(--border)", padding: "4px 8px" }}
+        >
+          <option value={1}>1 h</option>
+          <option value={4}>4 h</option>
+          <option value={24}>24 h</option>
+          <option value={168}>7 days</option>
+        </select>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="journal-empty">
+          <small>No signals in window.</small>
+        </div>
+      ) : (
+        <div className="signal-log-list">
+          {filtered.map((e) => (
+            <div key={e.id} className="signal-log-row">
+              <span className="signal-log-time">{new Date(e.timestamp).toLocaleTimeString()}</span>
+              <span className="signal-log-sym">{e.symbol}</span>
+              <span className={`trade-side ${e.side}`}>{e.side.toUpperCase()}</span>
+              <span className="signal-log-strat">{e.strategy}</span>
+              <span className="signal-log-regime">{e.regime.replace("_", " ")}</span>
+              <span className={`trade-status-pill ${e.state === "best_available" ? "win" : e.state === "stand_aside" ? "loss" : "be"}`}>
+                {e.state}
+              </span>
+              <span className="signal-log-score">
+                adj {e.adjustedScore.toFixed(2)} · T {e.triggerQuality >= 0 ? "+" : ""}{e.triggerQuality.toFixed(2)} · L {e.locationQuality >= 0 ? "+" : ""}{e.locationQuality.toFixed(2)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

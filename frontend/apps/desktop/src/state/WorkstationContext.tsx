@@ -45,6 +45,20 @@ import {
   type HysteresisState,
 } from "../engine/regimeHysteresis";
 import {
+  emptyStrategyHysteresisState,
+  stabilizeStrategy,
+  applyStrategyStabilization,
+  type StrategyHysteresisState,
+} from "../engine/strategyHysteresis";
+import {
+  appendSignal,
+  buildSignalEntry,
+  loadSignalLog,
+  persistSignalLog,
+  signalSetupKey,
+  type SignalLogEntry,
+} from "../engine/signalLog";
+import {
   buildMarketDataProvider,
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_PROVIDER_CONFIG,
@@ -145,6 +159,10 @@ interface WorkstationState {
 
   // Cross-market context (VIX/DXY/10y) — null until backend snapshot carries one.
   crossMarket: CrossMarketSnapshot | null;
+
+  // Signal log — auditable record of every unique setup emitted.
+  signalLog: SignalLogEntry[];
+  clearSignalLog: () => void;
 
   // TradersPost dispatch
   dispatchConfig: DispatchConfig;
@@ -320,6 +338,19 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [telegramConfig, setTelegramConfigRaw] = useState<TelegramConfig>(loadTelegramConfig);
   const [lastTelegramResult, setLastTelegramResult] = useState<TelegramDispatchResult | null>(null);
 
+  // Strategy hysteresis state — lives alongside regime hysteresis but
+  // operates one level deeper (which strategy wins within a stable regime).
+  const strategyHysteresisRef = useRef<StrategyHysteresisState>(emptyStrategyHysteresisState());
+  // Signal log — auditable record of every unique setup the engine produced.
+  // Loaded from localStorage on mount; appended when a NEW setupKey is
+  // emitted for any symbol. Persisted on every append.
+  const [signalLog, setSignalLogRaw] = useState<SignalLogEntry[]>(() => loadSignalLog());
+  const lastLoggedSetupByRef = useRef<Record<string, string>>({});
+  // Per-symbol Telegram cooldown ledger (setup trigger only — approval/sent
+  // already dedup on distinct events). 10-min floor regardless of setup
+  // changes; prevents the "1/minute on same symbol" noise.
+  const telegramSignalCooldownRef = useRef<Record<string, number>>({});
+
   useEffect(() => { persistDispatchConfig(dispatchConfig); }, [dispatchConfig]);
   useEffect(() => { persistTelegramConfig(telegramConfig); }, [telegramConfig]);
 
@@ -341,11 +372,43 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
 
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
+    // Strategy hysteresis state evolves across the whole-snapshot pass
+    // so the ref is mutated in-place. Each symbol gets independent
+    // history; regime hysteresis already happened upstream.
+    let stratState = strategyHysteresisRef.current;
     for (const ctx of enrichedContexts) {
-      out[ctx.instrument.symbol] = decide(ctx, account, killSwitch, journal, crossMarket);
+      const raw = decide(ctx, account, killSwitch, journal, crossMarket);
+      const { best, runnerUps, nextState } = stabilizeStrategy(
+        stratState,
+        ctx.instrument.symbol,
+        { candidate: raw.candidate, runnerUps: raw.runnerUps },
+      );
+      stratState = nextState;
+      out[ctx.instrument.symbol] = applyStrategyStabilization(raw, best, runnerUps);
     }
+    strategyHysteresisRef.current = stratState;
     return out;
   }, [enrichedContexts, account, killSwitch, journal, crossMarket]);
+
+  // Signal log — log every NEW setupKey the engine produces for ANY
+  // symbol (not just the selected one). Scanner runs all 6 in parallel;
+  // the log captures everything so the trader can audit noise sources.
+  useEffect(() => {
+    let changed = false;
+    let nextLog = signalLog;
+    for (const symbol of Object.keys(signals)) {
+      const sig = signals[symbol];
+      const key = signalSetupKey(sig);
+      if (lastLoggedSetupByRef.current[symbol] === key) continue;
+      lastLoggedSetupByRef.current[symbol] = key;
+      nextLog = appendSignal(nextLog, buildSignalEntry(sig));
+      changed = true;
+    }
+    if (changed) {
+      setSignalLogRaw(nextLog);
+      persistSignalLog(nextLog);
+    }
+  }, [signals, signalLog]);
 
   const selected = signals[selectedSymbol] ?? signals[contexts[0].instrument.symbol];
 
@@ -524,18 +587,24 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
       .then(setLastTelegramResult);
   }, [preMarketBrief, telegramConfig]);
 
-  // Telegram trigger 2/4 — new signal selected (only tradeable ones,
-  // skip stand-aside + hard blocks to avoid noise). Dedup by a stable
-  // setup key (symbol+strategy+regime+side) — NOT selected.id, which
-  // embeds a poll timestamp and would fire every 5 seconds.
+  // Telegram trigger 2/4 — new signal selected. Two guards:
+  //   1. setup-key dedup (can't fire same setup twice)
+  //   2. per-symbol cooldown (10 min floor regardless of setup churn)
+  // The cooldown is the key anti-spam lever on a volatile day when
+  // strategies flicker within a stable regime.
+  const TELEGRAM_SIGNAL_COOLDOWN_MS = 10 * 60 * 1000;
   useEffect(() => {
     if (!telegramConfig.enabled || !telegramConfig.triggers.signal) return;
     if (selected.hardBlock.active) return;
     if (selected.state === "stand_aside" || selected.state === "hard_blocked") return;
     const c = selected.candidate;
-    const setupKey = `${c.instrument.symbol}-${c.strategy}-${c.regime}-${c.side}`;
+    const symbol = c.instrument.symbol;
+    const setupKey = `${symbol}-${c.strategy}-${c.regime}-${c.side}`;
     if (tgLastSignalIdRef.current === setupKey) return;
+    const lastAt = telegramSignalCooldownRef.current[symbol] ?? 0;
+    if (Date.now() - lastAt < TELEGRAM_SIGNAL_COOLDOWN_MS) return;
     tgLastSignalIdRef.current = setupKey;
+    telegramSignalCooldownRef.current[symbol] = Date.now();
     dispatchTelegram(formatSignalMessage(selected), telegramConfig)
       .then(setLastTelegramResult);
   }, [selected, telegramConfig]);
@@ -903,6 +972,12 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     feedError,
     refreshFeed,
     crossMarket,
+    signalLog,
+    clearSignalLog: () => {
+      setSignalLogRaw([]);
+      persistSignalLog([]);
+      lastLoggedSetupByRef.current = {};
+    },
     dispatchConfig,
     setDispatchConfig,
     lastDispatchResult,
