@@ -5,7 +5,7 @@ import type {
   Side,
   StrategyId,
 } from "./types";
-import { STRATEGIES } from "./strategies";
+import { STRATEGIES, strategyEdgeScore, strategyExpectancy } from "./strategies";
 import { REGIME_STRATEGY_MAP } from "./regimes";
 
 // Given an instrument context, generate a concrete candidate trade for
@@ -122,6 +122,15 @@ export function buildCandidate(
 
   const rawScore = scoreCandidate(meta.id, ctx, side);
 
+  // Surface Capital Lab's take on this strategy's edge so the UI has a
+  // reason string that traces back to the sim — not just "regime matched".
+  const exp = strategyExpectancy(meta.id);
+  if (exp >= 0.3) {
+    reasons.push(`Capital Lab edge: +${exp.toFixed(2)}R expectancy.`);
+  } else if (exp <= 0) {
+    reasons.push(`Capital Lab edge: ${exp.toFixed(2)}R — negative or flat.`);
+  }
+
   return {
     strategy,
     instrument: ctx.instrument,
@@ -139,17 +148,23 @@ export function buildCandidate(
   };
 }
 
-// Score a candidate in [0..1]. Combines regime alignment, confidence,
-// liquidity, and a mild distance-to-entry factor.
+// Score a candidate in [0..1]. Weights sum to 1.0 before event penalty:
+//   regime fit (0.25) + regime confidence (0.25) + liquidity (0.15)
+// + Capital Lab edge (0.25) + side alignment (0.10)
+// − event penalty (0.20).
+// Capital Lab's edge is blended in here so every downstream consumer
+// (sizing, auto-pilot floor, state derivation) reflects historical
+// expectancy, not just regime fit.
 function scoreCandidate(
   strategy: StrategyId,
   ctx: InstrumentContext,
   side: Side,
 ): number {
   const regimeOk = (REGIME_STRATEGY_MAP[ctx.regime] as StrategyId[]).includes(strategy);
-  const regimeScore = regimeOk ? 0.35 : 0.1;
-  const confidenceScore = 0.35 * ctx.regimeConfidence;
-  const liquidityScore = 0.2 * ctx.liquidityScore;
+  const regimeScore = regimeOk ? 0.25 : 0.08;
+  const confidenceScore = 0.25 * ctx.regimeConfidence;
+  const liquidityScore = 0.15 * ctx.liquidityScore;
+  const edgeScore = 0.25 * strategyEdgeScore(strategy);
   const eventPenalty = 0.2 * ctx.eventRisk;
 
   let sideAlignment = 0.1;
@@ -160,7 +175,8 @@ function scoreCandidate(
     sideAlignment = 0.1;
   }
 
-  const score = regimeScore + confidenceScore + liquidityScore + sideAlignment - eventPenalty;
+  const score =
+    regimeScore + confidenceScore + liquidityScore + edgeScore + sideAlignment - eventPenalty;
   return Math.max(0, Math.min(1, score));
 }
 

@@ -15,7 +15,7 @@ import {
   simulateCapitalLab,
   type CapitalLabParams,
 } from "../engine/capitalLab";
-import { STRATEGIES, STRATEGY_LIST } from "../engine/strategies";
+import { STRATEGIES, STRATEGY_LIST, strategyEdgeScore, strategyExpectancy } from "../engine/strategies";
 import type { StrategyId } from "../engine/types";
 
 // Capital Lab = prop-firm readiness simulator.
@@ -109,6 +109,12 @@ export function CapitalLabPage() {
                   <td>{activePlaybook.edge.avgWinR.toFixed(1)}R / {activePlaybook.edge.avgLossR.toFixed(1)}R</td>
                 </tr>
                 <tr><td className="k">Trades / day</td><td>{activePlaybook.edge.tradesPerDay}</td></tr>
+                <tr><td className="k">Expectancy</td>
+                  <td>{strategyExpectancy(activePlaybook.id).toFixed(2)}R / trade</td>
+                </tr>
+                <tr><td className="k">Feeds decision score</td>
+                  <td>+{(strategyEdgeScore(activePlaybook.id) * 0.25).toFixed(2)} of raw score</td>
+                </tr>
               </tbody>
             </table>
           )}

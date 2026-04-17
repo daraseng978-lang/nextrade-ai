@@ -136,3 +136,19 @@ export const STRATEGIES: Record<StrategyId, StrategyMeta> = {
 };
 
 export const STRATEGY_LIST: StrategyMeta[] = Object.values(STRATEGIES);
+
+// Expectancy in R per trade from the playbook's edge preset.
+// Positive = net winning edge, negative = net losing edge.
+export function strategyExpectancy(id: StrategyId): number {
+  const e = STRATEGIES[id].edge;
+  return e.winRate * e.avgWinR - (1 - e.winRate) * e.avgLossR;
+}
+
+// Normalize per-strategy expectancy to a 0..1 edge score the decision
+// engine can blend with its other factors. Maps the realistic
+// expectancy range [-0.5R .. +1.0R] onto [0 .. 1]; anything outside
+// clamps to the ends.
+export function strategyEdgeScore(id: StrategyId): number {
+  const exp = strategyExpectancy(id);
+  return Math.max(0, Math.min(1, (exp + 0.5) / 1.5));
+}
