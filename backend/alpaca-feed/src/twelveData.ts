@@ -4,9 +4,9 @@ import type { AlpacaBar } from "./types.js";
 // We only use it for daily bars; intraday still comes from Alpaca
 // (quotes are fine there — the IEX tier just has sparse daily bars).
 //
-// Symbol convention: Twelve Data uses plain futures roots (ES, NQ,
-// YM, RTY, CL, GC) without the =F suffix. API reference:
-//   https://api.twelvedata.com/time_series?symbol=NQ&interval=1day&apikey=XX
+// Symbol convention: ES and CL work as plain roots; NQ/YM/RTY need
+// exchange qualifiers (NQ:CME, YM:CBOT, RTY:CME). GC (gold) requires
+// a paid plan — falls back to scaled GLD ETF bars automatically.
 
 const HOST = "https://api.twelvedata.com";
 
