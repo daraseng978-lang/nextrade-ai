@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWorkstation } from "../state/WorkstationContext";
 import { STRATEGIES } from "../engine/strategies";
 import { aiTradeReasoning } from "../engine/ai";
+
+interface AiCacheEntry { key: string; text: string; at: number; }
 
 export function DecisionPanel() {
   const { selected, providerConfig } = useWorkstation();
@@ -9,25 +11,50 @@ export function DecisionPanel() {
   const meta = STRATEGIES[c.strategy];
   const blocked = selected.state === "hard_blocked";
 
-  // AI commentary — only refresh when the setup materially changes
-  // (symbol, strategy, regime, or side). The signal id embeds a poll
-  // timestamp and would otherwise re-trigger the call every 5 seconds,
-  // which is both spammy and expensive.
+  // AI commentary — keyed on stable setup (symbol+strategy+regime+side).
+  // Per-symbol cache so flipping between symbols shows the prior analysis
+  // instead of re-paying Claude. Only fires on genuine setup changes;
+  // regime hysteresis upstream keeps borderline flicker from reaching us.
   const stableKey = `${c.instrument.symbol}-${c.strategy}-${c.regime}-${c.side}`;
+  const aiCache = useRef<Record<string, AiCacheEntry>>({});
   const [aiText, setAiText] = useState<string | null>(null);
   const [aiErr, setAiErr] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    setAiText(null);
+    const symbol = c.instrument.symbol;
+
+    if (blocked || c.reasons.length === 0) {
+      setAiText(null);
+      setAiErr(null);
+      setAiLoading(false);
+      return;
+    }
+
+    const cached = aiCache.current[symbol];
+    // Same stable setup for this symbol — reuse the cached analysis,
+    // don't re-call Claude. Swapping to a different symbol still shows
+    // that symbol's cached text (if any).
+    if (cached && cached.key === stableKey) {
+      setAiText(cached.text);
+      setAiErr(null);
+      setAiLoading(false);
+      return;
+    }
+    // Show stale text from the previous setup on this symbol while the
+    // new one loads — better UX than flashing empty → text.
+    if (cached) setAiText(cached.text);
     setAiErr(null);
-    if (blocked || c.reasons.length === 0) return;
     setAiLoading(true);
     aiTradeReasoning(providerConfig.restUrl, selected).then((r) => {
       if (cancelled) return;
       setAiLoading(false);
-      if (r.ok && r.data) setAiText(r.data.commentary);
-      else setAiErr(r.error ?? "unknown error");
+      if (r.ok && r.data) {
+        aiCache.current[symbol] = { key: stableKey, text: r.data.commentary, at: Date.now() };
+        setAiText(r.data.commentary);
+      } else {
+        setAiErr(r.error ?? "unknown error");
+      }
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

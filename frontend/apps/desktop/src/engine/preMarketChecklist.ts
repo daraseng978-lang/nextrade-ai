@@ -229,8 +229,11 @@ function buildMentalReadiness(
     readinessScore >= 0.45 ? "caution" :
     "stand_aside";
 
+  // Quality over quantity — cap at 2 good trades on a ready day, 1 on
+  // caution. Trader explicitly wants 1-2 high-conviction trades, not
+  // 50 mediocre ones.
   const suggestedMaxTrades =
-    sessionReadiness === "ready"      ? 3 :
+    sessionReadiness === "ready"      ? 2 :
     sessionReadiness === "caution"    ? 1 :
     0;
 

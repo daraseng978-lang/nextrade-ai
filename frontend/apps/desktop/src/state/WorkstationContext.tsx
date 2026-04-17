@@ -35,9 +35,15 @@ import { STRATEGIES } from "../engine/strategies";
 import type { JournalEntry } from "../engine/journal";
 import {
   evaluateAutoPilot,
+  autoPilotSetupKey,
   AUTOPILOT_MIN_SCORE_DEFAULT,
   type AutoPilotDecision,
 } from "../engine/autoPilot";
+import {
+  emptyHysteresisState,
+  stabilizeContexts,
+  type HysteresisState,
+} from "../engine/regimeHysteresis";
 import {
   buildMarketDataProvider,
   DEFAULT_POLL_INTERVAL_MS,
@@ -243,13 +249,28 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [providerConfig, setProviderConfigRaw] = useState<MarketDataProviderConfig>(
     () => loadProviderConfig(),
   );
-  const [contexts, setContexts] = useState<InstrumentContext[]>(mockContexts);
+  const [rawContexts, setRawContexts] = useState<InstrumentContext[]>(mockContexts);
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("idle");
   const [feedLastUpdate, setFeedLastUpdate] = useState<string | null>(null);
   const [feedLatencyMs, setFeedLatencyMs] = useState<number | null>(null);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [crossMarket, setCrossMarket] = useState<CrossMarketSnapshot | null>(null);
   const feedRefreshRef = useRef<(() => void) | null>(null);
+
+  // Regime hysteresis — stabilize the classifier output so borderline
+  // transitions don't flicker the UI, AI reasoning, or auto-pilot decisions.
+  // State persists across polls via a ref.
+  const hysteresisStateRef = useRef<HysteresisState>(emptyHysteresisState());
+  const contexts = useMemo(() => {
+    const { contexts: stable, nextState } = stabilizeContexts(
+      hysteresisStateRef.current,
+      rawContexts,
+    );
+    hysteresisStateRef.current = nextState;
+    return stable;
+  }, [rawContexts]);
+  // Back-compat: setters still write to rawContexts; consumers read stable.
+  const setContexts = setRawContexts;
 
   const [killSwitchForBrief, setKillSwitchForBrief] = useState(false);
   const preMarketBrief = useMemo(
@@ -286,6 +307,11 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [autoTradeCount, setAutoTradeCount] = useState(0);
   const [autoPilotMinScore, setAutoPilotMinScore] = useState(AUTOPILOT_MIN_SCORE_DEFAULT);
   const [lastAutoPilotDecision, setLastAutoPilotDecision] = useState<AutoPilotDecision | null>(null);
+  // Per-symbol auto-pilot ledger — tracks the last auto-processed setup
+  // key + timestamp to power the cooldown + setup-change dedup.
+  const autoPilotLedgerRef = useRef<Record<string, { setupKey: string; at: number }>>({});
+  // Back-compat for downstream code that used a single ref; we still
+  // expose this but populate it from the per-symbol ledger.
   const lastProcessedSignalIdRef = useRef<string | null>(null);
 
   const [dispatchConfig, setDispatchConfigRaw] = useState<DispatchConfig>(loadDispatchConfig);
@@ -377,6 +403,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
       if (!v) {
         setAutoTradeCount(0);
         lastProcessedSignalIdRef.current = null;
+        autoPilotLedgerRef.current = {};
         setLastAutoPilotDecision(null);
       }
       pushEvent({
@@ -538,6 +565,8 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   // WHY auto pilot didn't act.
   useEffect(() => {
     if (!autoPilot) return;
+    const symbol = selected.candidate.instrument.symbol;
+    const ledger = autoPilotLedgerRef.current[symbol];
     const decision = evaluateAutoPilot({
       autoPilot,
       killSwitch,
@@ -546,7 +575,8 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
       executionState,
       brief: preMarketBrief,
       autoTradeCount,
-      lastProcessedSignalId: lastProcessedSignalIdRef.current,
+      lastProcessedSignalId: ledger?.setupKey ?? null,
+      lastProcessedAt: ledger?.at ?? null,
       minAdjustedScore: autoPilotMinScore,
     });
     setLastAutoPilotDecision(decision);
@@ -566,10 +596,11 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    // approve_and_send path — stamp signal id before firing so the
-    // effect doesn't re-run this path when state transitions
-    // (executionState: draft -> approved -> sent).
-    lastProcessedSignalIdRef.current = selected.id;
+    // approve_and_send path — stamp setup key + timestamp in the ledger
+    // before firing so regime-flicker can't re-enter this branch.
+    const setupKey = autoPilotSetupKey(selected);
+    autoPilotLedgerRef.current[symbol] = { setupKey, at: Date.now() };
+    lastProcessedSignalIdRef.current = setupKey;
 
     const reduced = selected.adjustedScore < 0.58;
     setExecutionState("sent");
