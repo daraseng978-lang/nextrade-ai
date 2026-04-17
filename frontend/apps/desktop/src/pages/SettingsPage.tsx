@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useWorkstation } from "../state/WorkstationContext";
 import type { MarketDataProviderKind } from "../engine/marketDataProvider";
 
@@ -20,7 +21,12 @@ export function SettingsPage() {
     feedLatencyMs,
     feedError,
     refreshFeed,
+    dispatchConfig,
+    setDispatchConfig,
+    lastDispatchResult,
+    testDispatch,
   } = useWorkstation();
+  const [testing, setTesting] = useState(false);
 
   const update = (patch: Partial<typeof account>) =>
     setAccount({ ...account, ...patch });
@@ -264,10 +270,119 @@ export function SettingsPage() {
         </section>
 
         <section className="panel">
+          <h2>TradersPost Dispatch</h2>
+          <small>
+            Forward sent orders to TradersPost via the backend proxy
+            (webhook URL stays server-side). When disabled, "Send"
+            and Auto Pilot still log to the journal but no real order
+            leaves the app.
+          </small>
+
+          <div style={{ marginTop: 10 }}>
+            <button
+              className={`btn ${dispatchConfig.enabled ? "danger" : ""}`}
+              onClick={() => {
+                if (!dispatchConfig.enabled) {
+                  const ok = confirm(
+                    "Enable LIVE TradersPost dispatch?\n\n" +
+                    "Once enabled, every approved + sent trade (manual or Auto Pilot) " +
+                    "is POSTed to your TradersPost webhook and may execute against " +
+                    "your connected broker.\n\n" +
+                    "Make sure you have:\n" +
+                    "  · Set TRADERSPOST_WEBHOOK_URL in backend/alpaca-feed/.env\n" +
+                    "  · Restarted the backend\n" +
+                    "  · Verified the webhook with the Test button below first\n\n" +
+                    "Continue?"
+                  );
+                  if (!ok) return;
+                }
+                setDispatchConfig({ ...dispatchConfig, enabled: !dispatchConfig.enabled });
+              }}
+            >
+              {dispatchConfig.enabled ? "Disable Live Dispatch" : "Enable Live Dispatch"}
+            </button>
+            <small style={{ marginLeft: 12 }}>
+              State:{" "}
+              <strong style={{ color: dispatchConfig.enabled ? "var(--danger)" : "var(--muted)" }}>
+                {dispatchConfig.enabled ? "LIVE" : "OFF (mock)"}
+              </strong>
+            </small>
+          </div>
+
+          <table className="kv" style={{ marginTop: 10 }}>
+            <tbody>
+              <tr>
+                <td className="k">Backend dispatch endpoint</td>
+                <td>
+                  <input
+                    type="url"
+                    placeholder="http://localhost:3001/dispatch/traderspost"
+                    value={dispatchConfig.endpoint}
+                    onChange={(e) =>
+                      setDispatchConfig({ ...dispatchConfig, endpoint: e.target.value })
+                    }
+                    className="exec-block" style={{ width: 420 }}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td className="k">Webhook URL</td>
+                <td>
+                  <small>
+                    Set on the backend in <code>backend/alpaca-feed/.env</code> as{" "}
+                    <code>TRADERSPOST_WEBHOOK_URL</code>. Never sent to the browser.
+                  </small>
+                </td>
+              </tr>
+              <tr>
+                <td className="k">Last dispatch</td>
+                <td>
+                  {lastDispatchResult ? (
+                    <small style={{ color: lastDispatchResult.ok ? "var(--accent)" : "var(--danger)" }}>
+                      {lastDispatchResult.ok ? "✓" : "✗"} {lastDispatchResult.message}
+                      {lastDispatchResult.status > 0 && <> · HTTP {lastDispatchResult.status}</>}
+                      {lastDispatchResult.forwardedTo && (
+                        <> · → {lastDispatchResult.forwardedTo}</>
+                      )}
+                    </small>
+                  ) : (
+                    <small style={{ color: "var(--muted)" }}>none yet</small>
+                  )}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style={{ marginTop: 10 }}>
+            <button
+              className="btn"
+              disabled={testing}
+              onClick={async () => {
+                setTesting(true);
+                try { await testDispatch(); } finally { setTesting(false); }
+              }}
+            >
+              {testing ? "Sending…" : "Test dispatch (current signal)"}
+            </button>
+            <small style={{ marginLeft: 10, color: "var(--muted)" }}>
+              POSTs the currently selected signal's TradersPost payload to the backend.
+              Disabled mode returns mock success without forwarding.
+            </small>
+          </div>
+        </section>
+
+        <section className="panel">
           <h2>Integrations</h2>
           <table className="kv">
             <tbody>
-              <tr><td className="k">TradersPost</td><td>mock · ready (no live API key)</td></tr>
+              <tr>
+                <td className="k">TradersPost</td>
+                <td>
+                  {dispatchConfig.enabled
+                    ? <strong style={{ color: "var(--danger)" }}>LIVE dispatch enabled</strong>
+                    : "mock · disabled (configure in TradersPost Dispatch above)"}
+                </td>
+              </tr>
               <tr><td className="k">Tradovate</td><td>mock · ready (routed via TradersPost)</td></tr>
               <tr>
                 <td className="k">Market data feed</td>

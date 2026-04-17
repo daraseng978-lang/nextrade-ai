@@ -39,8 +39,25 @@ TradersPost webhook config are untouched.
 
 ## Endpoints
 
-- `GET /health` — `{ status, feed, symbols }`
+- `GET /health` — `{ status, feed, symbols, tradersPost: { configured, webhook? } }`
 - `GET /market/contexts` — `{ contexts: InstrumentContext[], cached, ageMs }`
+- `POST /dispatch/traderspost` — body: TradersPostDispatch payload from
+  the frontend; forwards to `TRADERSPOST_WEBHOOK_URL` and returns
+  `{ ok, status, body, forwardedTo }`. Returns 503 when the webhook
+  URL isn't configured.
+
+## TradersPost dispatch
+
+Set `TRADERSPOST_WEBHOOK_URL` in `.env` to the webhook URL from your
+TradersPost strategy (TradersPost → Strategies → your strategy →
+Webhook URL). Restart the backend.
+
+In the frontend: Settings → TradersPost Dispatch → Enable Live
+Dispatch (confirmation dialog) → Test dispatch (current signal)
+to verify before arming Auto Pilot or sending real trades.
+
+The webhook URL never reaches the browser — only the backend holds
+it. The frontend only knows the backend dispatch endpoint URL.
 
 Snapshots are cached for `CACHE_TTL_MS` (default 4s) to avoid
 hammering Alpaca. Poll interval in the frontend can be shorter than

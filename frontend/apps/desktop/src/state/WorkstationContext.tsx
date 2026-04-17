@@ -44,6 +44,13 @@ import {
   type MarketDataProviderConfig,
   type MarketDataProviderKind,
 } from "../engine/marketDataProvider";
+import {
+  dispatchToTradersPost,
+  DEFAULT_DISPATCH_CONFIG,
+  type DispatchConfig,
+  type DispatchResult,
+} from "../engine/dispatch";
+import { formatExecution } from "../engine/executionFormatter";
 
 export type { JournalEntry } from "../engine/journal";
 
@@ -112,6 +119,12 @@ interface WorkstationState {
   feedLatencyMs: number | null;
   feedError: string | null;
   refreshFeed: () => void;
+
+  // TradersPost dispatch
+  dispatchConfig: DispatchConfig;
+  setDispatchConfig: (cfg: DispatchConfig) => void;
+  lastDispatchResult: DispatchResult | null;
+  testDispatch: () => Promise<DispatchResult>;
 }
 
 export type FeedStatus = "idle" | "loading" | "live" | "error";
@@ -133,6 +146,25 @@ function persistProviderConfig(cfg: MarketDataProviderConfig): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(PROVIDER_CONFIG_STORAGE_KEY, JSON.stringify(cfg));
+  } catch { /* ignore */ }
+}
+
+const DISPATCH_CONFIG_STORAGE_KEY = "nextrade.dispatch.v1";
+
+function loadDispatchConfig(): DispatchConfig {
+  if (typeof window === "undefined") return DEFAULT_DISPATCH_CONFIG;
+  try {
+    const raw = window.localStorage.getItem(DISPATCH_CONFIG_STORAGE_KEY);
+    if (!raw) return DEFAULT_DISPATCH_CONFIG;
+    const parsed = JSON.parse(raw) as DispatchConfig;
+    return { ...DEFAULT_DISPATCH_CONFIG, ...parsed };
+  } catch { return DEFAULT_DISPATCH_CONFIG; }
+}
+
+function persistDispatchConfig(cfg: DispatchConfig): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DISPATCH_CONFIG_STORAGE_KEY, JSON.stringify(cfg));
   } catch { /* ignore */ }
 }
 
@@ -201,6 +233,15 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [autoPilotMinScore, setAutoPilotMinScore] = useState(AUTOPILOT_MIN_SCORE_DEFAULT);
   const [lastAutoPilotDecision, setLastAutoPilotDecision] = useState<AutoPilotDecision | null>(null);
   const lastProcessedSignalIdRef = useRef<string | null>(null);
+
+  const [dispatchConfig, setDispatchConfigRaw] = useState<DispatchConfig>(loadDispatchConfig);
+  const [lastDispatchResult, setLastDispatchResult] = useState<DispatchResult | null>(null);
+
+  useEffect(() => { persistDispatchConfig(dispatchConfig); }, [dispatchConfig]);
+
+  const setDispatchConfig = useCallback((cfg: DispatchConfig) => {
+    setDispatchConfigRaw(cfg);
+  }, []);
 
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
@@ -419,6 +460,23 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     setExecutionState("sent");
     setAutoTradeCount((n) => n + 1);
 
+    // Fire dispatch in the background; the journal entry below records
+    // the auto-pilot decision regardless of dispatch outcome (which is
+    // recorded as an event when it resolves).
+    const tpPayload = formatExecution(selected).tradersPost;
+    dispatchToTradersPost(tpPayload, dispatchConfig).then((dispatchResult) => {
+      setLastDispatchResult(dispatchResult);
+      pushEvent({
+        kind: "sent",
+        symbol: selected.candidate.instrument.symbol,
+        detail: dispatchConfig.enabled
+          ? (dispatchResult.ok
+              ? `Auto Pilot → TradersPost OK · HTTP ${dispatchResult.status}`
+              : `Auto Pilot → TradersPost FAILED · ${dispatchResult.message}`)
+          : `Auto Pilot send (dispatch disabled).`,
+      });
+    });
+
     const c = selected.candidate;
     const inst = c.instrument;
     const newEntry: JournalEntry = {
@@ -481,9 +539,17 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     });
   }, [executionState, selected, pushEvent]);
 
-  const send = useCallback(() => {
+  const send = useCallback(async () => {
     if (executionState !== "approved" && executionState !== "reduced_approved") return;
     setExecutionState("sent");
+
+    // Dispatch to TradersPost (no-op when disabled). Awaited so the
+    // journal entry can carry the result, but state already moved to
+    // "sent" so the UI is responsive.
+    const tpPayload = formatExecution(selected).tradersPost;
+    const dispatchResult = await dispatchToTradersPost(tpPayload, dispatchConfig);
+    setLastDispatchResult(dispatchResult);
+
     const c = selected.candidate;
     const inst = c.instrument;
     const newEntry: JournalEntry = {
@@ -516,14 +582,32 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
 
       // outcome placeholders — filled in after close
       status: "open",
+      notes: dispatchConfig.enabled
+        ? (dispatchResult.ok
+            ? `TradersPost dispatched · HTTP ${dispatchResult.status}`
+            : `TradersPost dispatch FAILED · ${dispatchResult.message}`)
+        : undefined,
     };
     setJournal((prev) => [newEntry, ...prev].slice(0, 500));
     pushEvent({
       kind: "sent",
       symbol: selected.candidate.instrument.symbol,
-      detail: `Sent to TradersPost · ${selected.sizing.finalContracts} ctx.`,
+      detail: dispatchConfig.enabled
+        ? (dispatchResult.ok
+            ? `Sent to TradersPost · ${selected.sizing.finalContracts} ctx · HTTP ${dispatchResult.status}`
+            : `TradersPost dispatch FAILED · ${dispatchResult.message}`)
+        : `Sent (mock — dispatch disabled) · ${selected.sizing.finalContracts} ctx.`,
     });
-  }, [executionState, selected, pushEvent]);
+  }, [executionState, selected, pushEvent, dispatchConfig]);
+
+  // Send a synthetic test payload through the dispatch pipeline so the
+  // user can verify their TradersPost webhook before arming Auto Pilot.
+  const testDispatch = useCallback(async (): Promise<DispatchResult> => {
+    const tpPayload = formatExecution(selected).tradersPost;
+    const result = await dispatchToTradersPost(tpPayload, dispatchConfig);
+    setLastDispatchResult(result);
+    return result;
+  }, [selected, dispatchConfig]);
 
   const updateJournalEntry = useCallback((id: string, patch: Partial<JournalEntry>) => {
     setJournal((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -613,6 +697,10 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     feedLatencyMs,
     feedError,
     refreshFeed,
+    dispatchConfig,
+    setDispatchConfig,
+    lastDispatchResult,
+    testDispatch,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -6,6 +6,7 @@ import { atrFromBars, openingRangeFromBars, priorDayHighLow, spreadFromQuote, vw
 import { classifyRegime } from "./regime.js";
 import { SYMBOL_MAPPINGS, scale, type SymbolMapping } from "./mapping.js";
 import type { InstrumentContext } from "./types.js";
+import { dispatchTradersPost, redactWebhook, validatePayload } from "./dispatch.js";
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ const {
   ALPACA_FEED = "iex",
   PORT = "3001",
   CACHE_TTL_MS = "4000",
+  TRADERSPOST_WEBHOOK_URL = "",
 } = process.env;
 
 if (!APCA_API_KEY_ID || !APCA_API_SECRET_KEY) {
@@ -84,9 +86,37 @@ async function buildSnapshot(): Promise<InstrumentContext[]> {
 
 const app = express();
 app.use(cors());
+app.use(express.json({ limit: "32kb" }));
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", feed: alpacaCfg.feed, symbols: SYMBOL_MAPPINGS.map(m => `${m.futures.symbol}/${m.etf}`) });
+  res.json({
+    status: "ok",
+    feed: alpacaCfg.feed,
+    symbols: SYMBOL_MAPPINGS.map(m => `${m.futures.symbol}/${m.etf}`),
+    tradersPost: {
+      configured: !!TRADERSPOST_WEBHOOK_URL,
+      webhook: TRADERSPOST_WEBHOOK_URL ? redactWebhook(TRADERSPOST_WEBHOOK_URL) : null,
+    },
+  });
+});
+
+app.post("/dispatch/traderspost", async (req, res) => {
+  if (!TRADERSPOST_WEBHOOK_URL) {
+    return res.status(503).json({
+      ok: false,
+      error: "TradersPost webhook URL not configured. Set TRADERSPOST_WEBHOOK_URL in backend/alpaca-feed/.env and restart.",
+    });
+  }
+  try {
+    const payload = validatePayload(req.body);
+    const result = await dispatchTradersPost(payload, TRADERSPOST_WEBHOOK_URL);
+    console.log(`[/dispatch/traderspost] ${payload.action} ${payload.ticker} qty=${payload.quantity} -> ${result.status}`);
+    res.status(result.ok ? 200 : 502).json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/dispatch/traderspost] error:", msg);
+    res.status(400).json({ ok: false, error: msg });
+  }
 });
 
 app.get("/market/contexts", async (_req, res) => {
@@ -113,4 +143,9 @@ const port = Number(PORT) || 3001;
 app.listen(port, () => {
   console.log(`[alpaca-feed] listening on http://localhost:${port}`);
   console.log(`[alpaca-feed] feed=${alpacaCfg.feed} symbols=${SYMBOL_MAPPINGS.map(m => m.futures.symbol).join(",")}`);
+  if (TRADERSPOST_WEBHOOK_URL) {
+    console.log(`[alpaca-feed] tradersPost webhook: ${redactWebhook(TRADERSPOST_WEBHOOK_URL)}`);
+  } else {
+    console.log(`[alpaca-feed] tradersPost dispatch: DISABLED (no TRADERSPOST_WEBHOOK_URL set)`);
+  }
 });
