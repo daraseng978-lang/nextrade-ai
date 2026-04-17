@@ -24,9 +24,17 @@ export async function fetchStooqDailyBars(
   limit: number = 10,
 ): Promise<AlpacaBar[]> {
   await pace();
-  const url = `${HOST}/?s=${encodeURIComponent(symbol)}&i=d`;
+  // Stooq's download endpoint wants lowercase symbols; uppercase sometimes
+  // returns an empty body even when the symbol exists.
+  const sym = symbol.toLowerCase();
+  const url = `${HOST}/?s=${encodeURIComponent(sym)}&i=d`;
   const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "text/csv,text/plain,*/*" },
+    headers: {
+      "User-Agent": UA,
+      Accept: "text/csv,text/plain,*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      Referer: "https://stooq.com/",
+    },
   });
   if (!res.ok) throw new Error(`Stooq ${res.status} for ${symbol}`);
   const text = await res.text();
@@ -34,13 +42,17 @@ export async function fetchStooqDailyBars(
 }
 
 function parseCsv(csv: string, symbol: string, limit: number): AlpacaBar[] {
-  const lines = csv.trim().split("\n");
-  if (lines.length < 2) throw new Error(`Stooq: empty response for ${symbol}`);
-  if (
-    csv.toLowerCase().includes("no data") ||
-    !lines[0].toLowerCase().includes("date")
-  ) {
-    throw new Error(`Stooq: no data for ${symbol}`);
+  const trimmed = csv.trim();
+  const lines = trimmed.split("\n");
+  if (trimmed.length === 0) throw new Error(`Stooq: empty response for ${symbol}`);
+  if (lines.length < 2) {
+    throw new Error(`Stooq: short response for ${symbol}: "${trimmed.slice(0, 80)}"`);
+  }
+  if (!lines[0].toLowerCase().includes("date")) {
+    throw new Error(`Stooq: no header for ${symbol}: "${trimmed.slice(0, 80)}"`);
+  }
+  if (trimmed.toLowerCase().includes("no data")) {
+    throw new Error(`Stooq: "no data" for ${symbol}`);
   }
   const bars: AlpacaBar[] = [];
   for (let i = 1; i < lines.length; i++) {
