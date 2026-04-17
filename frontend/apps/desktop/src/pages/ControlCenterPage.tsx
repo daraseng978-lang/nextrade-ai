@@ -1039,6 +1039,24 @@ function eventCategory(kind: EventKind): {
         label: "AUTOPILOT_EXEC",
         tag: "AP",
       };
+    case "manual_trade_sent":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "created",
+        stream: "ok",
+        label: "MANUAL_SENT",
+        tag: "MT",
+      };
+    case "manual_trade_failed":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "created",
+        stream: "gate",
+        label: "MANUAL_FAIL",
+        tag: "MT",
+      };
   }
 }
 

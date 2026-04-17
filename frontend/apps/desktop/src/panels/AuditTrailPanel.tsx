@@ -15,6 +15,8 @@ const KIND_ICON: Record<EventKind, string> = {
   auto_pilot_disarmed: "🎛️",
   auto_pilot_skipped: "⏸",
   auto_pilot_executed: "⚡",
+  manual_trade_sent: "🟢",
+  manual_trade_failed: "❌",
 };
 
 export function AuditTrailPanel() {
