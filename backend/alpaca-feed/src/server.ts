@@ -3,7 +3,7 @@ import cors from "cors";
 import cron from "node-cron";
 import dotenv from "dotenv";
 import { fetchDailyBars, fetchIntradayBars, fetchLatestQuote, type AlpacaConfig } from "./alpaca.js";
-import { fetchYahooDailyBars, fetchYahooIntradayBars, fetchYahooQuote } from "./yahoo.js";
+import { fetchYahooBundle } from "./yahoo.js";
 import { fetchCrossMarketSnapshot, type CrossMarketSnapshot } from "./crossMarket.js";
 import { atrFromBars, openingRangeFromBars, priorDayHighLow, spreadFromQuote, vwapFromBars } from "./indicators.js";
 import { classifyRegime } from "./regime.js";
@@ -45,7 +45,10 @@ const alpacaCfg: AlpacaConfig = {
   feed: ALPACA_FEED === "sip" ? "sip" : "iex",
 };
 
-const cacheTtl = Math.max(500, Number(CACHE_TTL_MS) || 4000);
+// Yahoo is ~15-min delayed and rate-limits aggressively; cache longer
+// (30s) when using Yahoo so polling frontends don't storm the API.
+const defaultCacheTtl = provider === "yahoo" ? 30_000 : 4000;
+const cacheTtl = Math.max(500, Number(CACHE_TTL_MS) || defaultCacheTtl);
 
 let cachedSnapshot: { at: number; contexts: InstrumentContext[] } | null = null;
 // Cross-market data changes slowly and Yahoo rate-limits; cache it longer.
@@ -129,20 +132,14 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
 // Alpaca key. Quote is ~15 min delayed; good enough for everything
 // except execution-timing decisions.
 async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentContext> {
-  const [quote, intraday, daily] = await Promise.all([
-    fetchYahooQuote(mapping.yahooSymbol).catch((err) => {
-      console.warn(`[yahoo] ${mapping.yahooSymbol} quote failed: ${err instanceof Error ? err.message : err}`);
-      return null;
-    }),
-    fetchYahooIntradayBars(mapping.yahooSymbol).catch((err) => {
-      console.warn(`[yahoo] ${mapping.yahooSymbol} intraday bars failed: ${err instanceof Error ? err.message : err}`);
-      return [];
-    }),
-    fetchYahooDailyBars(mapping.yahooSymbol).catch((err) => {
-      console.warn(`[yahoo] ${mapping.yahooSymbol} daily bars failed: ${err instanceof Error ? err.message : err}`);
-      return [];
-    }),
-  ]);
+  let bundle: Awaited<ReturnType<typeof fetchYahooBundle>>;
+  try {
+    bundle = await fetchYahooBundle(mapping.yahooSymbol);
+  } catch (err) {
+    console.warn(`[yahoo] ${mapping.yahooSymbol} bundle failed: ${err instanceof Error ? err.message : err}`);
+    bundle = { symbol: mapping.yahooSymbol, intraday: [], daily: [], quote: null };
+  }
+  const { quote, intraday, daily } = bundle;
 
   const coverage = `${mapping.yahooSymbol}: quote=${quote ? "✓" : "✗"} intraday=${intraday.length} daily=${daily.length}`;
   if (!quote && intraday.length === 0 && daily.length === 0) {
@@ -181,8 +178,16 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
 }
 
 async function buildSnapshot(): Promise<InstrumentContext[]> {
-  const builder = provider === "yahoo" ? buildYahooContextFor : buildContextFor;
-  return Promise.all(SYMBOL_MAPPINGS.map(builder));
+  if (provider === "yahoo") {
+    // Serialize: Yahoo's free tier 429s on bursts. Module-level pacing
+    // in yahoo.ts handles the gap between requests.
+    const out: InstrumentContext[] = [];
+    for (const mapping of SYMBOL_MAPPINGS) {
+      out.push(await buildYahooContextFor(mapping));
+    }
+    return out;
+  }
+  return Promise.all(SYMBOL_MAPPINGS.map(buildContextFor));
 }
 
 const app = express();
