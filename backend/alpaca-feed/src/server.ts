@@ -364,23 +364,17 @@ async function refreshYahooDailies(): Promise<void> {
 }
 
 async function calibrateMultipliers(): Promise<void> {
+  // Only calibrate from Yahoo Finance — it provides verified futures prices.
+  // Twelve Data cache bars can resolve to wrong instruments (e.g. the "ES"
+  // symbol may not be E-mini S&P 500), so they are not safe for calibration.
+  // If Yahoo is rate-limited the map stays empty and mapping.multiplier is used.
   const results: string[] = [];
   for (const mapping of SYMBOL_MAPPINGS) {
     let futuresClose: number | null = null;
-
-    // Native futures in cache (ES, CL): bars are already in futures-price-space.
-    if (!mapping.twelveDataNeedsScale) {
-      const cached = yahooDailyCache.get(mapping.yahooSymbol);
-      if (cached && cached.length > 0) futuresClose = cached[cached.length - 1].c;
-    }
-
-    // ETF-proxy symbols (NQ/YM/RTY) or cache miss: try a fresh Yahoo quote.
-    if (futuresClose === null) {
-      try {
-        const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
-        if (bars.length > 0) futuresClose = bars[bars.length - 1].c;
-      } catch { /* leave null — Yahoo may be rate-limited */ }
-    }
+    try {
+      const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
+      if (bars.length > 0) futuresClose = bars[bars.length - 1].c;
+    } catch { /* Yahoo rate-limited — skip, keep static multiplier */ }
 
     if (!futuresClose || futuresClose <= 0) continue;
 
