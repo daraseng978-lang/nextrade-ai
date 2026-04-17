@@ -9,8 +9,11 @@ export function DecisionPanel() {
   const meta = STRATEGIES[c.strategy];
   const blocked = selected.state === "hard_blocked";
 
-  // AI commentary — refresh whenever the selected candidate id changes.
-  // Never blocks render; shows loading/error inline.
+  // AI commentary — only refresh when the setup materially changes
+  // (symbol, strategy, regime, or side). The signal id embeds a poll
+  // timestamp and would otherwise re-trigger the call every 5 seconds,
+  // which is both spammy and expensive.
+  const stableKey = `${c.instrument.symbol}-${c.strategy}-${c.regime}-${c.side}`;
   const [aiText, setAiText] = useState<string | null>(null);
   const [aiErr, setAiErr] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -27,7 +30,8 @@ export function DecisionPanel() {
       else setAiErr(r.error ?? "unknown error");
     });
     return () => { cancelled = true; };
-  }, [selected.id, blocked, providerConfig.restUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stableKey, blocked, providerConfig.restUrl]);
 
   return (
     <section>

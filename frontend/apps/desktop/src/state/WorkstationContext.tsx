@@ -498,22 +498,28 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   }, [preMarketBrief, telegramConfig]);
 
   // Telegram trigger 2/4 — new signal selected (only tradeable ones,
-  // skip stand-aside + hard blocks to avoid noise). Dedup by signal ID to
-  // avoid resending when Telegram config toggles on/off.
+  // skip stand-aside + hard blocks to avoid noise). Dedup by a stable
+  // setup key (symbol+strategy+regime+side) — NOT selected.id, which
+  // embeds a poll timestamp and would fire every 5 seconds.
   useEffect(() => {
     if (!telegramConfig.enabled || !telegramConfig.triggers.signal) return;
     if (selected.hardBlock.active) return;
     if (selected.state === "stand_aside" || selected.state === "hard_blocked") return;
-    if (tgLastSignalIdRef.current === selected.id) return;
-    tgLastSignalIdRef.current = selected.id;
+    const c = selected.candidate;
+    const setupKey = `${c.instrument.symbol}-${c.strategy}-${c.regime}-${c.side}`;
+    if (tgLastSignalIdRef.current === setupKey) return;
+    tgLastSignalIdRef.current = setupKey;
     dispatchTelegram(formatSignalMessage(selected), telegramConfig)
       .then(setLastTelegramResult);
   }, [selected, telegramConfig]);
 
-  // Telegram trigger 3/4 — approval state transitions
+  // Telegram trigger 3/4 — approval state transitions (keyed on stable
+  // setup + executionState, not selected.id which rotates each poll).
   useEffect(() => {
     if (!telegramConfig.enabled || !telegramConfig.triggers.approval) return;
-    const key = `${selected.id}:${executionState}`;
+    const c = selected.candidate;
+    const setupKey = `${c.instrument.symbol}-${c.strategy}-${c.regime}-${c.side}`;
+    const key = `${setupKey}:${executionState}`;
     if (tgLastApprovalStateRef.current === key) return;
     if (executionState === "draft" && propFirm.finalContracts > 0 && !selected.hardBlock.active) {
       tgLastApprovalStateRef.current = key;
@@ -584,8 +590,9 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
               : `Auto Pilot → TradersPost FAILED · ${dispatchResult.message}`)
           : `Auto Pilot send (dispatch disabled).`,
       });
-      if (telegramConfig.enabled && telegramConfig.triggers.sent && tgLastSentIdRef.current !== selected.id) {
-        tgLastSentIdRef.current = selected.id;
+      const autoSentKey = `${selected.candidate.instrument.symbol}-${selected.candidate.strategy}-${selected.candidate.regime}-${selected.candidate.side}-auto`;
+      if (telegramConfig.enabled && telegramConfig.triggers.sent && tgLastSentIdRef.current !== autoSentKey) {
+        tgLastSentIdRef.current = autoSentKey;
         const status: "ok" | "fail" | "mock" = dispatchConfig.enabled
           ? (dispatchResult.ok ? "ok" : "fail")
           : "mock";
@@ -720,8 +727,9 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
         : `Sent (mock — dispatch disabled) · ${selected.sizing.finalContracts} ctx.`,
     });
 
-    if (telegramConfig.enabled && telegramConfig.triggers.sent && tgLastSentIdRef.current !== selected.id) {
-      tgLastSentIdRef.current = selected.id;
+    const manualSentKey = `${selected.candidate.instrument.symbol}-${selected.candidate.strategy}-${selected.candidate.regime}-${selected.candidate.side}-manual`;
+    if (telegramConfig.enabled && telegramConfig.triggers.sent && tgLastSentIdRef.current !== manualSentKey) {
+      tgLastSentIdRef.current = manualSentKey;
       const status: "ok" | "fail" | "mock" = dispatchConfig.enabled
         ? (dispatchResult.ok ? "ok" : "fail")
         : "mock";
