@@ -15,11 +15,27 @@ export interface MarketDataProviderConfig {
   apiKey?: string;         // optional auth header for REST
 }
 
+export interface CrossMarketTicker {
+  symbol: string;
+  price: number;
+  previousClose: number;
+  changePct: number;
+}
+
+export interface CrossMarketSnapshot {
+  vix: CrossMarketTicker | null;
+  dxy: CrossMarketTicker | null;
+  tnx: CrossMarketTicker | null;
+  regimeBias: "risk_on" | "risk_off" | "neutral";
+  summary: string;
+}
+
 export interface FeedSnapshot {
   contexts: InstrumentContext[];
   receivedAt: string;      // ISO timestamp the payload was received
   latencyMs: number;       // how long the fetch took
   providerKind: MarketDataProviderKind;
+  crossMarket?: CrossMarketSnapshot | null;
 }
 
 export interface MarketDataProvider {
@@ -125,11 +141,14 @@ function makeRestProvider(url: string, apiKey?: string): MarketDataProvider {
         throw new Error("REST provider: payload is not an InstrumentContext[] or { contexts }");
       }
       validateContexts(contexts);
+      const crossMarket: CrossMarketSnapshot | null =
+        payload && !Array.isArray(payload) && payload.crossMarket ? payload.crossMarket : null;
       return {
         contexts,
         receivedAt: new Date().toISOString(),
         latencyMs: Date.now() - started,
         providerKind: "rest",
+        crossMarket,
       };
     },
   };

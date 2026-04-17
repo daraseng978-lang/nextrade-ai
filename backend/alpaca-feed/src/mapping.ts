@@ -14,6 +14,7 @@ export interface SymbolMapping {
   futures: Instrument;
   etf: string;         // Alpaca symbol to fetch
   multiplier: number;  // futures_price ≈ etf_price * multiplier
+  yahooSymbol: string; // Yahoo Finance symbol (real futures, keyless, ~15min delay)
 }
 
 export const SYMBOL_MAPPINGS: SymbolMapping[] = [
@@ -25,6 +26,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     },
     etf: "SPY",
     multiplier: 10.0, // SPY ≈ S&P / 10; MES tracks S&P × 1
+    yahooSymbol: "ES=F",
   },
   {
     futures: {
@@ -34,6 +36,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     },
     etf: "QQQ",
     multiplier: 50.0, // QQQ ≈ Nasdaq / 40; MNQ tracks Nasdaq × 1
+    yahooSymbol: "NQ=F",
   },
   {
     futures: {
@@ -43,6 +46,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     },
     etf: "DIA",
     multiplier: 100.0, // DIA ≈ Dow / 100
+    yahooSymbol: "YM=F",
   },
   {
     futures: {
@@ -52,6 +56,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     },
     etf: "IWM",
     multiplier: 10.0,
+    yahooSymbol: "RTY=F",
   },
   {
     futures: {
@@ -61,6 +66,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     },
     etf: "USO",
     multiplier: 0.85, // USO tracks WTI but with contango decay; tune as needed
+    yahooSymbol: "CL=F",
   },
   {
     futures: {
@@ -70,6 +76,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     },
     etf: "GLD",
     multiplier: 11.0, // GLD ≈ gold_price / 10 per share; small tracking offset
+    yahooSymbol: "GC=F",
   },
 ];
 

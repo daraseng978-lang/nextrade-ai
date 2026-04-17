@@ -42,6 +42,7 @@ import {
   buildMarketDataProvider,
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_PROVIDER_CONFIG,
+  type CrossMarketSnapshot,
   type MarketDataProviderConfig,
   type MarketDataProviderKind,
 } from "../engine/marketDataProvider";
@@ -135,6 +136,9 @@ interface WorkstationState {
   feedLatencyMs: number | null;
   feedError: string | null;
   refreshFeed: () => void;
+
+  // Cross-market context (VIX/DXY/10y) — null until backend snapshot carries one.
+  crossMarket: CrossMarketSnapshot | null;
 
   // TradersPost dispatch
   dispatchConfig: DispatchConfig;
@@ -244,6 +248,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [feedLastUpdate, setFeedLastUpdate] = useState<string | null>(null);
   const [feedLatencyMs, setFeedLatencyMs] = useState<number | null>(null);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [crossMarket, setCrossMarket] = useState<CrossMarketSnapshot | null>(null);
   const feedRefreshRef = useRef<(() => void) | null>(null);
 
   const [killSwitchForBrief, setKillSwitchForBrief] = useState(false);
@@ -405,6 +410,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
         setFeedLatencyMs(snap.latencyMs);
         setFeedError(null);
         setFeedStatus("live");
+        if (snap.crossMarket !== undefined) setCrossMarket(snap.crossMarket);
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
@@ -857,6 +863,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     feedLatencyMs,
     feedError,
     refreshFeed,
+    crossMarket,
     dispatchConfig,
     setDispatchConfig,
     lastDispatchResult,
