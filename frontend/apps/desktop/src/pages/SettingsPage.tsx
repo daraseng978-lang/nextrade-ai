@@ -145,9 +145,25 @@ export function SettingsPage() {
               sub="ticking prices · proves polling"
             />
             <ProviderButton
-              active={providerConfig.kind === "rest"}
-              onClick={() => setProviderConfig({ ...providerConfig, kind: "rest" })}
-              label="REST Endpoint"
+              active={
+                providerConfig.kind === "rest" &&
+                providerConfig.restUrl === "http://localhost:3001/market/contexts"
+              }
+              onClick={() => setProviderConfig({
+                ...providerConfig,
+                kind: "rest",
+                restUrl: "http://localhost:3001/market/contexts",
+              })}
+              label="Alpaca (local shim)"
+              sub="backend/alpaca-feed · ETF → futures"
+            />
+            <ProviderButton
+              active={
+                providerConfig.kind === "rest" &&
+                providerConfig.restUrl !== "http://localhost:3001/market/contexts"
+              }
+              onClick={() => setProviderConfig({ ...providerConfig, kind: "rest", restUrl: "" })}
+              label="Custom REST"
               sub="your own broker adapter"
             />
           </div>
@@ -256,7 +272,7 @@ export function SettingsPage() {
               <tr>
                 <td className="k">Market data feed</td>
                 <td>
-                  <strong>{providerKindLabel(providerConfig.kind)}</strong> ·{" "}
+                  <strong>{providerKindLabel(providerConfig.kind, providerConfig.restUrl)}</strong> ·{" "}
                   see <code>engine/marketDataProvider.ts</code>
                 </td>
               </tr>
@@ -296,8 +312,9 @@ function FeedStatusChip({ status }: { status: "idle" | "loading" | "live" | "err
   return <span className={`feed-status ${cls}`}>{label}</span>;
 }
 
-function providerKindLabel(kind: MarketDataProviderKind): string {
-  return kind === "mock" ? "Mock (deterministic)"
-    : kind === "live_mock" ? "Live Mock (ticking)"
-    : "REST endpoint";
+function providerKindLabel(kind: MarketDataProviderKind, url?: string): string {
+  if (kind === "mock") return "Mock (deterministic)";
+  if (kind === "live_mock") return "Live Mock (ticking)";
+  if (url === "http://localhost:3001/market/contexts") return "Alpaca (local shim)";
+  return "REST endpoint";
 }
