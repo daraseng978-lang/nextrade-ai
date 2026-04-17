@@ -3,12 +3,12 @@ import cors from "cors";
 import cron from "node-cron";
 import dotenv from "dotenv";
 import { fetchDailyBars, fetchIntradayBars, fetchLatestQuote, type AlpacaConfig } from "./alpaca.js";
-import { fetchYahooBundle } from "./yahoo.js";
+import { fetchYahooBundle, fetchYahooDailyBars } from "./yahoo.js";
 import { fetchCrossMarketSnapshot, type CrossMarketSnapshot } from "./crossMarket.js";
 import { atrFromBars, openingRangeFromBars, priorDayHighLow, spreadFromQuote, vwapFromBars } from "./indicators.js";
 import { classifyRegime } from "./regime.js";
 import { SYMBOL_MAPPINGS, scale, type SymbolMapping } from "./mapping.js";
-import type { InstrumentContext } from "./types.js";
+import type { AlpacaBar, InstrumentContext } from "./types.js";
 import { dispatchTradersPost, redactWebhook, validatePayload } from "./dispatch.js";
 import { sendTelegramMessage } from "./telegram.js";
 import { getEconomicCalendar, type EconomicEvent } from "./calendar.js";
@@ -33,6 +33,13 @@ const {
   // discretionary setup; the cached snapshot serves every /market/contexts
   // call in between. Empty string disables the schedule.
   YAHOO_REFRESH_CRON = "0 30 8,12 * * 1-5", // 8:30am + 12:00pm ET weekdays
+  // Hybrid mode: when provider=alpaca, also pull real consolidated daily
+  // bars from Yahoo once per trading day (pre-market) to get usable
+  // priorHigh/priorLow. Alpaca's free IEX feed returns sparse daily
+  // aggregates. Set to "false" to disable. One Yahoo hit/symbol/day is
+  // well under the rate limit.
+  HYBRID_YAHOO_DAILIES = "true",
+  HYBRID_YAHOO_DAILIES_CRON = "0 0 8 * * 1-5", // 8:00am ET, before RTH open
 } = process.env;
 
 const provider: "alpaca" | "yahoo" = MARKET_PROVIDER === "yahoo" ? "yahoo" : "alpaca";
@@ -62,6 +69,13 @@ let cachedSnapshot: { at: number; contexts: InstrumentContext[] } | null = null;
 // Cross-market follows the same schedule as futures in yahoo mode.
 const crossMarketTtl = provider === "yahoo" ? YAHOO_CACHE_TTL : 30_000;
 let cachedCrossMarket: { at: number; snapshot: CrossMarketSnapshot } | null = null;
+
+// Hybrid mode (provider=alpaca): Alpaca's IEX free tier returns garbage
+// daily bars (only IEX-routed trades, ~2% of SPY volume). We pull real
+// consolidated daily bars from Yahoo once per trading day and cache them
+// here, keyed by Yahoo symbol (ES=F, SPY, etc.).
+const yahooDailyCache: Map<string, AlpacaBar[]> = new Map();
+let yahooDailyLastRefresh = 0;
 
 async function getCrossMarketSnapshot(): Promise<CrossMarketSnapshot> {
   const now = Date.now();
@@ -111,9 +125,21 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
   // Regime classification works on ETF bars directly (ratios don't need scaling)
   const regimeResult = classifyRegime(intraday, daily, etfAtr);
 
-  // Scale everything into futures-space so the decision engine computes
-  // entry/stop/target in native futures price units
+  // Hybrid: prefer Yahoo's consolidated futures daily bars for priorH/L
+  // (Alpaca IEX daily bars are IEX-routed only → distorted). Yahoo bars
+  // are already in futures-price-space so we don't scale them.
   const m = mapping.multiplier;
+  const yahooDaily = yahooDailyCache.get(mapping.yahooSymbol);
+  let priorHigh = scale(etfPD.high, m);
+  let priorLow = scale(etfPD.low, m);
+  if (yahooDaily && yahooDaily.length >= 2) {
+    const yahooPD = priorDayHighLow(yahooDaily);
+    priorHigh = yahooPD.high;
+    priorLow = yahooPD.low;
+  }
+
+  // Scale everything else into futures-space so the decision engine
+  // computes entry/stop/target in native futures price units.
   return {
     instrument: mapping.futures,
     price:      scale(etfPrice, m),
@@ -123,8 +149,8 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
       high: scale(etfOR.high, m),
       low:  scale(etfOR.low,  m),
     },
-    priorHigh: scale(etfPD.high, m),
-    priorLow:  scale(etfPD.low,  m),
+    priorHigh,
+    priorLow,
     regime: regimeResult.regime,
     regimeConfidence: parseFloat(regimeResult.confidence.toFixed(3)),
     liquidityScore:   parseFloat(regimeResult.liquidityScore.toFixed(3)),
@@ -183,6 +209,32 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
     eventRisk: 0.15,
     spread,
   };
+}
+
+// Pull Yahoo daily bars for each mapped symbol once and stash in
+// `yahooDailyCache`. Used by hybrid mode (provider=alpaca) to fill in
+// the priorHigh/priorLow that IEX daily bars are too sparse to provide.
+// Serial, paced (yahoo.ts handles throttling). Runs at most once/day.
+async function refreshYahooDailies(): Promise<void> {
+  console.log("[hybrid-yahoo-daily] refreshing daily bars for all symbols...");
+  let ok = 0, fail = 0;
+  for (const mapping of SYMBOL_MAPPINGS) {
+    try {
+      const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
+      if (bars.length >= 2) {
+        yahooDailyCache.set(mapping.yahooSymbol, bars);
+        ok++;
+      } else {
+        console.warn(`[hybrid-yahoo-daily] ${mapping.yahooSymbol} returned ${bars.length} bars — skipping`);
+        fail++;
+      }
+    } catch (err) {
+      console.warn(`[hybrid-yahoo-daily] ${mapping.yahooSymbol} failed: ${err instanceof Error ? err.message : err}`);
+      fail++;
+    }
+  }
+  yahooDailyLastRefresh = Date.now();
+  console.log(`[hybrid-yahoo-daily] done — ${ok} ok, ${fail} failed`);
 }
 
 async function buildSnapshot(): Promise<InstrumentContext[]> {
@@ -588,5 +640,27 @@ app.listen(port, () => {
         console.error("[yahoo-refresh] initial pull error:", msg);
       }
     }, 5000);
+  }
+
+  // Hybrid mode — Alpaca quotes/intraday + one Yahoo daily-bar pull per
+  // trading day to get real consolidated priorHigh/priorLow. One hit
+  // per symbol per day is well under Yahoo's rate limit.
+  if (provider === "alpaca" && HYBRID_YAHOO_DAILIES === "true") {
+    cron.schedule(HYBRID_YAHOO_DAILIES_CRON, () => {
+      refreshYahooDailies().catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[hybrid-yahoo-daily] cron error:", msg);
+      });
+    });
+    console.log(`[alpaca-feed] hybrid yahoo dailies: SCHEDULED (${HYBRID_YAHOO_DAILIES_CRON})`);
+
+    // Initial pull 3s after startup so priorHigh/priorLow are correct
+    // on the first /market/contexts request.
+    setTimeout(() => {
+      refreshYahooDailies().catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[hybrid-yahoo-daily] initial pull error:", msg);
+      });
+    }, 3000);
   }
 });
