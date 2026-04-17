@@ -32,6 +32,8 @@ export function SettingsPage() {
   } = useWorkstation();
   const [testing, setTesting] = useState(false);
   const [testingTg, setTestingTg] = useState(false);
+  const [sendingBrief, setSendingBrief] = useState(false);
+  const [briefResult, setBriefResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const update = (patch: Partial<typeof account>) =>
     setAccount({ ...account, ...patch });
@@ -510,9 +512,41 @@ export function SettingsPage() {
             >
               {testingTg ? "Sending…" : "Test message"}
             </button>
+            <button
+              className="btn"
+              disabled={sendingBrief || !telegramConfig.enabled}
+              style={{ marginLeft: 8 }}
+              onClick={async () => {
+                setSendingBrief(true);
+                setBriefResult(null);
+                try {
+                  const briefEndpoint = telegramConfig.endpoint.replace(/\/telegram$/, "/brief");
+                  const res = await fetch(briefEndpoint, { method: "POST" });
+                  const json = await res.json().catch(() => ({}));
+                  setBriefResult({
+                    ok: res.ok && json.ok !== false,
+                    message: json.error ?? (res.ok ? "Brief sent" : `HTTP ${res.status}`),
+                  });
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  setBriefResult({ ok: false, message: msg });
+                } finally {
+                  setSendingBrief(false);
+                }
+              }}
+            >
+              {sendingBrief ? "Sending brief…" : "Send Reggie's brief now"}
+            </button>
             <small style={{ marginLeft: 10, color: "var(--muted)" }}>
-              Sends "🧪 Nextrade AI · test message · [time]" to your chat.
+              Test: stub ping. Brief: fetch live contexts + economic calendar.
             </small>
+            {briefResult && (
+              <div style={{ marginTop: 6 }}>
+                <small style={{ color: briefResult.ok ? "var(--accent)" : "var(--danger)" }}>
+                  {briefResult.ok ? "✓" : "✗"} {briefResult.message}
+                </small>
+              </div>
+            )}
           </div>
         </section>
 
