@@ -33,6 +33,18 @@ export interface InstrumentContext {
   liquidityScore: number;
   eventRisk: number;
   spread: number;
+  // Quality-layer optional fields. Backend computes crude POC/VAH/VAL
+  // from intraday bars and passes the tail of bars so the frontend can
+  // run price-action-trigger logic without refetching raw bars.
+  poc?: number;
+  vah?: number;
+  val?: number;
+  recentBars?: Array<{ t: string; o: number; h: number; l: number; c: number; v: number }>;
+  avgBarVolume?: number;
+  vwapSlope?: number;
+  footprintAvailable?: boolean;
+  deltaLastBar?: number;
+  cumulativeDelta?: number;
 }
 
 export interface AlpacaBar {
