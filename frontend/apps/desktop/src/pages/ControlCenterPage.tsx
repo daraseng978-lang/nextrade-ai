@@ -38,6 +38,11 @@ export function ControlCenterPage() {
     autoTradeCount,
     autoPilotMinScore,
     lastAutoPilotDecision,
+    providerConfig,
+    feedStatus,
+    feedLastUpdate,
+    feedLatencyMs,
+    feedError,
   } = useWorkstation();
 
   const sym = selected.candidate.instrument.symbol;
@@ -521,10 +526,30 @@ export function ControlCenterPage() {
           </section>
 
           <section className="cc-v2-section">
-            <div className="cc-v2-section-head">Market Data Feed</div>
-            <div className="cc-v2-section-sub">
-              Deterministic mock · engine/mockData.ts
+            <div className="cc-v2-section-head">
+              Market Data Feed
+              <span className={`cc-feed-status ${feedStatus}`}>
+                {feedStatus === "live" ? "LIVE" :
+                 feedStatus === "loading" ? "FETCHING" :
+                 feedStatus === "error" ? "ERROR" :
+                 "IDLE"}
+              </span>
             </div>
+            <div className="cc-v2-section-sub">
+              {providerConfig.kind === "mock"      ? "Static mock · engine/mockData.ts" :
+               providerConfig.kind === "live_mock" ? `Live mock · ${providerConfig.pollIntervalMs ?? 5000}ms poll · ±${((providerConfig.driftFactor ?? 0.0008) * 100).toFixed(2)}% drift` :
+               `REST · ${providerConfig.restUrl || "(not configured)"}`}
+              {feedLastUpdate && (
+                <>
+                  {" · "}
+                  last update {new Date(feedLastUpdate).toLocaleTimeString()}
+                  {feedLatencyMs !== null && <> ({feedLatencyMs}ms)</>}
+                </>
+              )}
+            </div>
+            {feedError && (
+              <div className="cc-feed-error">⚠ {feedError}</div>
+            )}
             {contexts.map((ctx) => (
               <FeedRow key={ctx.instrument.symbol} ctx={ctx} />
             ))}

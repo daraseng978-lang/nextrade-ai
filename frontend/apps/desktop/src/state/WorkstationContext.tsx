@@ -37,6 +37,13 @@ import {
   AUTOPILOT_MIN_SCORE_DEFAULT,
   type AutoPilotDecision,
 } from "../engine/autoPilot";
+import {
+  buildMarketDataProvider,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_PROVIDER_CONFIG,
+  type MarketDataProviderConfig,
+  type MarketDataProviderKind,
+} from "../engine/marketDataProvider";
 
 export type { JournalEntry } from "../engine/journal";
 
@@ -96,9 +103,38 @@ interface WorkstationState {
   autoPilotMinScore: number;
   setAutoPilotMinScore: (v: number) => void;
   lastAutoPilotDecision: AutoPilotDecision | null;
+
+  // Market data feed
+  providerConfig: MarketDataProviderConfig;
+  setProviderConfig: (cfg: MarketDataProviderConfig) => void;
+  feedStatus: FeedStatus;
+  feedLastUpdate: string | null;
+  feedLatencyMs: number | null;
+  feedError: string | null;
+  refreshFeed: () => void;
 }
 
+export type FeedStatus = "idle" | "loading" | "live" | "error";
+
 const JOURNAL_STORAGE_KEY = "nextrade.journal.v1";
+const PROVIDER_CONFIG_STORAGE_KEY = "nextrade.marketDataProvider.v1";
+
+function loadProviderConfig(): MarketDataProviderConfig {
+  if (typeof window === "undefined") return DEFAULT_PROVIDER_CONFIG;
+  try {
+    const raw = window.localStorage.getItem(PROVIDER_CONFIG_STORAGE_KEY);
+    if (!raw) return DEFAULT_PROVIDER_CONFIG;
+    const parsed = JSON.parse(raw) as MarketDataProviderConfig;
+    return { ...DEFAULT_PROVIDER_CONFIG, ...parsed };
+  } catch { return DEFAULT_PROVIDER_CONFIG; }
+}
+
+function persistProviderConfig(cfg: MarketDataProviderConfig): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PROVIDER_CONFIG_STORAGE_KEY, JSON.stringify(cfg));
+  } catch { /* ignore */ }
+}
 
 function loadPersistedJournal(): JournalEntry[] {
   if (typeof window === "undefined") return [];
@@ -120,7 +156,16 @@ function persistJournal(journal: JournalEntry[]): void {
 const Ctx = createContext<WorkstationState | null>(null);
 
 export function WorkstationProvider({ children }: PropsWithChildren) {
-  const [contexts] = useState(mockContexts);
+  const [providerConfig, setProviderConfigRaw] = useState<MarketDataProviderConfig>(
+    () => loadProviderConfig(),
+  );
+  const [contexts, setContexts] = useState<InstrumentContext[]>(mockContexts);
+  const [feedStatus, setFeedStatus] = useState<FeedStatus>("idle");
+  const [feedLastUpdate, setFeedLastUpdate] = useState<string | null>(null);
+  const [feedLatencyMs, setFeedLatencyMs] = useState<number | null>(null);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const feedRefreshRef = useRef<(() => void) | null>(null);
+
   const [killSwitchForBrief, setKillSwitchForBrief] = useState(false);
   const preMarketBrief = useMemo(
     () => buildPreMarketBrief(contexts, killSwitchForBrief),
@@ -232,6 +277,57 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     },
     [pushEvent, autoPilotMinScore],
   );
+
+  // ---- Market data feed polling ----
+  // Builds the provider from config, polls on an interval, updates
+  // contexts + feed status. Errors surface in the UI and stop the loop
+  // until config changes (no auto-retry storms).
+  useEffect(() => {
+    persistProviderConfig(providerConfig);
+    const provider = buildMarketDataProvider(providerConfig);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      if (cancelled) return;
+      setFeedStatus((prev) => (prev === "live" ? "live" : "loading"));
+      try {
+        const snap = await provider.snapshot();
+        if (cancelled) return;
+        setContexts(snap.contexts);
+        setFeedLastUpdate(snap.receivedAt);
+        setFeedLatencyMs(snap.latencyMs);
+        setFeedError(null);
+        setFeedStatus("live");
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        setFeedError(msg);
+        setFeedStatus("error");
+        return; // stop scheduling on error
+      }
+      const interval = providerConfig.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+      // mock provider is static, no point polling more than once
+      if (providerConfig.kind === "mock") return;
+      timer = setTimeout(poll, interval);
+    };
+
+    feedRefreshRef.current = () => { poll(); };
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [providerConfig]);
+
+  const setProviderConfig = useCallback((cfg: MarketDataProviderConfig) => {
+    setProviderConfigRaw(cfg);
+  }, []);
+
+  const refreshFeed = useCallback(() => {
+    feedRefreshRef.current?.();
+  }, []);
 
   // Auto-arm kill switch when Reggie's mental readiness says stand_aside.
   // Also force-disarms Auto Pilot — we don't want the system routing on a
@@ -510,6 +606,13 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     autoPilotMinScore,
     setAutoPilotMinScore,
     lastAutoPilotDecision,
+    providerConfig,
+    setProviderConfig,
+    feedStatus,
+    feedLastUpdate,
+    feedLatencyMs,
+    feedError,
+    refreshFeed,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

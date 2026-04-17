@@ -2550,3 +2550,106 @@ table.kv td.k {
   background: rgba(245, 183, 75, 0.15);
   color: var(--warn);
 }
+
+/* ============================================================
+   Market data feed — settings + control center indicators
+   ============================================================ */
+
+.feed-provider-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.provider-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  min-width: 160px;
+}
+.provider-btn:hover { border-color: var(--line-2); color: var(--text); }
+.provider-btn.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.provider-btn-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.provider-btn-sub {
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+.provider-btn.active .provider-btn-sub { color: var(--accent); opacity: 0.7; }
+
+.feed-status {
+  display: inline-block;
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.feed-status.live {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.feed-status.loading {
+  background: rgba(94, 163, 255, 0.08);
+  color: var(--accent-2);
+  border-color: rgba(94, 163, 255, 0.3);
+}
+.feed-status.error {
+  background: rgba(255, 92, 122, 0.08);
+  color: var(--danger);
+  border-color: rgba(255, 92, 122, 0.3);
+}
+
+/* Control Center section head status chip */
+.cc-feed-status {
+  float: right;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.cc-feed-status.live {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+  animation: cc-autopilot-pulse 2.2s ease-out infinite;
+}
+.cc-feed-status.loading { color: var(--accent-2); }
+.cc-feed-status.error {
+  background: rgba(255, 92, 122, 0.08);
+  color: var(--danger);
+  border-color: rgba(255, 92, 122, 0.3);
+}
+
+.cc-feed-error {
+  margin: 8px 0;
+  padding: 6px 10px;
+  background: rgba(255, 92, 122, 0.08);
+  border: 1px solid rgba(255, 92, 122, 0.25);
+  border-radius: 4px;
+  color: var(--danger);
+  font-size: 11px;
+  font-family: var(--mono);
+}
