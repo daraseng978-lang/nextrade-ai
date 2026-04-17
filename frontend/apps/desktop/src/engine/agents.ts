@@ -5,6 +5,7 @@ import type {
   PropFirmControl,
   SelectedSignal,
 } from "./types";
+import type { PreMarketBrief } from "./preMarketChecklist";
 import { STRATEGIES } from "./strategies";
 
 // Agent supervisor: derives a safe operational summary of what each agent
@@ -42,10 +43,11 @@ export interface AgentContextInputs {
   killSwitch: boolean;
   quorumEnabled: boolean;
   journalCount: number;
+  preMarketBrief?: PreMarketBrief;
 }
 
 export function buildAgentStatuses(input: AgentContextInputs): AgentStatus[] {
-  const { signal, propFirm, executionState, killSwitch, quorumEnabled, journalCount } = input;
+  const { signal, propFirm, executionState, killSwitch, quorumEnabled, journalCount, preMarketBrief } = input;
   const now = new Date().toISOString();
   const sym = signal.candidate.instrument.symbol;
   const strategyLabel = STRATEGIES[signal.candidate.strategy].label;
@@ -82,13 +84,29 @@ export function buildAgentStatuses(input: AgentContextInputs): AgentStatus[] {
           needsUserApproval: false,
         });
 
-      case "research":
+      case "research": {
+        if (!preMarketBrief) {
+          return build(entry, {
+            state: "running",
+            currentTask: "Compiling pre-market brief…",
+            summary: "Scanning economic calendar, overnight session and key levels.",
+            needsUserApproval: false,
+          });
+        }
+        const { mentalReadiness, economicCalendar, sectorRotation, overnightSummary } = preMarketBrief;
+        const highImpact = economicCalendar.filter(e => e.impact === "high");
+        const biases = overnightSummary.map(o => `${o.symbol} ${o.sessionBias}`).join(" · ");
+        const summary =
+          `${mentalReadiness.sessionReadiness.toUpperCase()} — ${sectorRotation.capitalFlow.replace("_", " ")} flow. ` +
+          `${highImpact.length} high-impact event${highImpact.length !== 1 ? "s" : ""} today. ` +
+          `Overnight: ${biases}. Handoff → Strat.`;
         return build(entry, {
-          state: "idle",
-          currentTask: "Assumption notes + constraints",
-          summary: "No new research tasks queued.",
+          state: "completed",
+          currentTask: `Pre-market brief ${preMarketBrief.date} · ${economicCalendar.length} events · ${overnightSummary.length} instruments`,
+          summary,
           needsUserApproval: false,
         });
+      }
 
       case "decision_engine":
         return build(entry, {

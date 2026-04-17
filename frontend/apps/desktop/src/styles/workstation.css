@@ -1782,4 +1782,122 @@ table.kv td.k {
 .cc-event-tag.agent { background: rgba(169, 125, 255, 0.1); color: var(--violet); }
 .cc-event-tag.sys { background: rgba(94, 163, 255, 0.08); color: var(--accent-2); }
 .cc-event-tag.ok { background: var(--accent-soft); color: var(--accent); }
+
+/* ============================================================
+   Pre-Market Brief section (Reggie → Strat)
+   ============================================================ */
+.cc-brief { gap: 0; }
+
+.cc-brief-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  border-radius: 2px;
+  background: rgba(169, 125, 255, 0.12);
+  color: var(--violet);
+  font-family: var(--mono);
+}
+
+.cc-brief-block {
+  margin-top: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.cc-brief-block:last-child { border-bottom: 0; }
+
+.cc-brief-blk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.cc-brief-readiness {
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.cc-brief-notes { display: flex; flex-direction: column; gap: 3px; }
+.cc-brief-note {
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.45;
+}
+.cc-brief-note.muted { color: var(--muted-2); font-size: 10px; }
+.cc-brief-note.warn { color: var(--warn); }
+
+.cc-brief-table { width: 100%; border-collapse: collapse; }
+.cc-brief-table td { padding: 3px 0; font-size: 10.5px; }
+.cc-brief-time { color: var(--muted-2); font-family: var(--mono); font-size: 10px; padding-right: 8px; white-space: nowrap; }
+.cc-brief-event { color: var(--text); flex: 1; }
+.cc-brief-impact {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  border-radius: 2px;
+}
+.cc-brief-impact.high { background: rgba(255, 92, 122, 0.12); color: var(--danger); }
+.cc-brief-impact.medium { background: rgba(245, 183, 75, 0.1); color: var(--warn); }
+.cc-brief-impact.low { background: var(--accent-soft); color: var(--muted); }
+
+.cc-brief-overnight { display: flex; flex-direction: column; gap: 5px; }
+.cc-brief-overnight-row {
+  display: grid;
+  grid-template-columns: 36px 62px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+}
+.cc-brief-sym { font-family: var(--mono); font-size: 10px; color: var(--muted-2); }
+.cc-brief-bias { font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; }
+.cc-brief-bias.bullish { color: var(--accent); }
+.cc-brief-bias.bearish { color: var(--danger); }
+.cc-brief-bias.neutral { color: var(--muted); }
+.cc-brief-gap { font-size: 10px; color: var(--muted-2); }
+.cc-brief-support { font-size: 10px; font-family: var(--mono); }
+.cc-brief-support.ok { color: var(--accent); }
+.cc-brief-support.warn { color: var(--warn); }
+
+.cc-brief-flow {
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+.cc-brief-flow.risk_on { background: var(--accent-soft); color: var(--accent); }
+.cc-brief-flow.risk_off { background: rgba(255, 92, 122, 0.1); color: var(--danger); }
+.cc-brief-flow.neutral { background: rgba(245, 183, 75, 0.08); color: var(--warn); }
+
+.cc-brief-sectors { display: flex; flex-direction: column; gap: 4px; }
+.cc-brief-rel-strength { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.cc-brief-rs-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 32px;
+  align-items: center;
+  gap: 6px;
+}
+.cc-brief-rs-bar {
+  height: 4px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.cc-brief-rs-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  opacity: 0.7;
+}
+.cc-brief-rs-val { font-family: var(--mono); font-size: 10px; color: var(--muted-2); text-align: right; }
 .cc-event-tag.gate { background: rgba(245, 183, 75, 0.1); color: var(--warn); }

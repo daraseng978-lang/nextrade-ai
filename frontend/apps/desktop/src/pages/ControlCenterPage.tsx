@@ -13,6 +13,7 @@ import type {
   PropFirmControl,
   RouteStatus,
 } from "../engine/types";
+import type { PreMarketBrief } from "../engine/preMarketChecklist";
 
 // Control Center = supervision. Layout mirrors the NEXTRADE AI
 // Control Center mockup: 6-cell status rail + 3-column body.
@@ -31,6 +32,7 @@ export function ControlCenterPage() {
     routeHealth,
     contexts,
     account,
+    preMarketBrief,
   } = useWorkstation();
 
   const sym = selected.candidate.instrument.symbol;
@@ -52,8 +54,9 @@ export function ControlCenterPage() {
         killSwitch,
         quorumEnabled,
         journalCount: journal.length,
+        preMarketBrief,
       }),
-    [selected, propFirm, executionState, killSwitch, quorumEnabled, journal.length],
+    [selected, propFirm, executionState, killSwitch, quorumEnabled, journal.length, preMarketBrief],
   );
   const agentGroups = useMemo(() => groupAgents(agents), [agents]);
 
@@ -429,6 +432,8 @@ export function ControlCenterPage() {
 
         {/* ============ RIGHT ============ */}
         <aside className="cc-v2-right">
+          <PreMarketBriefSection brief={preMarketBrief} />
+
           <section className="cc-v2-section">
             <div className="cc-v2-section-head">Route Health</div>
             <div className="cc-v2-section-sub">
@@ -936,4 +941,115 @@ function mockTickRate(symbol: string): string {
   const hash = [...symbol].reduce((acc, c) => acc + c.charCodeAt(0), 0);
   const n = 150 + (hash * 17) % 2300;
   return n >= 1000 ? `${(n / 1000).toFixed(2)}K t/m` : `${n} t/m`;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-Market Brief section — Reggie's morning research handoff to Strat
+// ---------------------------------------------------------------------------
+
+function PreMarketBriefSection({ brief }: { brief: PreMarketBrief }) {
+  const { mentalReadiness, economicCalendar, overnightSummary, sectorRotation, date } = brief;
+  const readinessColor =
+    mentalReadiness.sessionReadiness === "ready"      ? "var(--accent)" :
+    mentalReadiness.sessionReadiness === "caution"    ? "var(--warn)" :
+    "var(--danger)";
+
+  return (
+    <section className="cc-v2-section cc-brief">
+      <div className="cc-v2-section-head">
+        Pre-Market Brief
+        <span className="cc-brief-tag">REGGIE → STRAT</span>
+      </div>
+      <div className="cc-v2-section-sub">{date} · enriched before decision engine</div>
+
+      {/* Mental readiness */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">
+          Mental Readiness
+          <span className="cc-brief-readiness" style={{ color: readinessColor }}>
+            {mentalReadiness.sessionReadiness.replace("_", " ").toUpperCase()}
+          </span>
+        </div>
+        <div className="cc-brief-notes">
+          {mentalReadiness.notes.map((n, i) => (
+            <div key={i} className="cc-brief-note">· {n}</div>
+          ))}
+          <div className="cc-brief-note muted">
+            Suggested max trades: {mentalReadiness.suggestedMaxTrades}
+          </div>
+        </div>
+      </div>
+
+      {/* Economic calendar */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">Economic Calendar</div>
+        <table className="cc-brief-table">
+          <tbody>
+            {economicCalendar.map((ev, i) => (
+              <tr key={i}>
+                <td className="cc-brief-time">{ev.time}</td>
+                <td className="cc-brief-event">{ev.event}</td>
+                <td>
+                  <span className={`cc-brief-impact ${ev.impact}`}>{ev.impact.toUpperCase()}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Overnight session */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">Overnight Session</div>
+        <div className="cc-brief-overnight">
+          {overnightSummary.map((o) => (
+            <div key={o.symbol} className="cc-brief-overnight-row">
+              <span className="cc-brief-sym">{o.symbol}</span>
+              <span className={`cc-brief-bias ${o.sessionBias}`}>{o.sessionBias}</span>
+              <span className="cc-brief-gap muted">{o.gapType.replace("_", " ")} {o.gapSize.toFixed(1)}pt</span>
+              <span className={`cc-brief-support ${o.regimeSupport ? "ok" : "warn"}`}>
+                {o.regimeSupport ? "regime ✓" : "regime ✗"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Sector rotation */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">
+          Sector Rotation
+          <span className={`cc-brief-flow ${sectorRotation.capitalFlow}`}>
+            {sectorRotation.capitalFlow.replace("_", " ").toUpperCase()}
+          </span>
+        </div>
+        <div className="cc-brief-sectors">
+          {sectorRotation.leadingSectors.length > 0 && (
+            <div className="cc-brief-note">
+              Leading: {sectorRotation.leadingSectors.join(", ")}
+            </div>
+          )}
+          {sectorRotation.laggingSectors.length > 0 && (
+            <div className="cc-brief-note warn">
+              Lagging: {sectorRotation.laggingSectors.join(", ")}
+            </div>
+          )}
+          <div className="cc-brief-rel-strength">
+            {sectorRotation.relativeStrength.slice(0, 4).map((r) => (
+              <div key={r.symbol} className="cc-brief-rs-row">
+                <span className="cc-brief-sym">{r.symbol}</span>
+                <div className="cc-brief-rs-bar">
+                  <div
+                    className="cc-brief-rs-fill"
+                    style={{ width: `${r.relScore * 100}%` }}
+                  />
+                </div>
+                <span className="cc-brief-rs-val">{r.relScore.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }

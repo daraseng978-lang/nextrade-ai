@@ -24,6 +24,11 @@ import { mockContexts } from "../engine/mockData";
 import { buildPropFirmControl } from "../engine/propFirm";
 import { DEFAULT_QUAD_TIMEFRAMES, type ChartFeedMode } from "../engine/tradingView";
 import { buildMockRouteHealth } from "../engine/routeHealth";
+import {
+  buildPreMarketBrief,
+  enrichContextsWithBrief,
+  type PreMarketBrief,
+} from "../engine/preMarketChecklist";
 
 export type ChartViewMode = "quad" | "focus";
 
@@ -69,6 +74,7 @@ interface WorkstationState {
   routeHealth: RouteHealth;
   events: EventEntry[];
   pushEvent: (entry: Omit<EventEntry, "id" | "timestamp">) => void;
+  preMarketBrief: PreMarketBrief;
 }
 
 export interface JournalEntry {
@@ -89,6 +95,15 @@ const Ctx = createContext<WorkstationState | null>(null);
 
 export function WorkstationProvider({ children }: PropsWithChildren) {
   const [contexts] = useState(mockContexts);
+  const [killSwitchForBrief, setKillSwitchForBrief] = useState(false);
+  const preMarketBrief = useMemo(
+    () => buildPreMarketBrief(contexts, killSwitchForBrief),
+    [contexts, killSwitchForBrief],
+  );
+  const enrichedContexts = useMemo(
+    () => enrichContextsWithBrief(contexts, preMarketBrief),
+    [contexts, preMarketBrief],
+  );
   const [selectedSymbol, setSelectedSymbolRaw] = useState<string>(
     contexts[0]?.instrument.symbol ?? "MES",
   );
@@ -109,11 +124,11 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
 
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
-    for (const ctx of contexts) {
+    for (const ctx of enrichedContexts) {
       out[ctx.instrument.symbol] = decide(ctx, account, killSwitch);
     }
     return out;
-  }, [contexts, account, killSwitch]);
+  }, [enrichedContexts, account, killSwitch]);
 
   const selected = signals[selectedSymbol] ?? signals[contexts[0].instrument.symbol];
 
@@ -145,6 +160,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const setKillSwitch = useCallback(
     (v: boolean) => {
       setKillSwitchRaw(v);
+      setKillSwitchForBrief(v);
       pushEvent({
         kind: v ? "kill_switch_armed" : "kill_switch_disarmed",
         detail: v ? "Kill switch engaged — routing disabled." : "Kill switch disarmed.",
@@ -299,6 +315,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     routeHealth,
     events,
     pushEvent,
+    preMarketBrief,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
