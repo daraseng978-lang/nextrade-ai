@@ -2,21 +2,32 @@ import type {
   CrossMarketSnapshot,
   InstrumentContext,
   PlaybookCandidate,
+  QualityRating,
   RegimeId,
   ScoreBreakdown,
+  SetupQuality,
   Side,
   StrategyId,
+  StrategyMeta,
 } from "./types";
 import { STRATEGIES } from "./strategies";
 import { blendedEdgeForStrategy } from "./strategyEdge";
 import type { JournalEntry } from "./journal";
 import { REGIME_STRATEGY_MAP } from "./regimes";
+import { evaluateSetupQuality } from "./quality";
+import { pickStructureStop } from "./stops";
+import { pickStructuralTargets } from "./targets";
 
 // Given an instrument context, generate a concrete candidate trade for
-// a given strategy. The generator is deterministic: same context in → same
-// candidate out. Levels are anchored to session structure, never invented.
-// Pass `journal` so Capital Lab's preset edge gets blended with realized
-// outcomes (Bayesian shrinkage) before feeding into the score.
+// a given strategy. Pipeline:
+//   1. Base geometry — side, entry, ATR-anchored reference stop (legacy logic)
+//   2. Quality evaluation — price-action trigger, VWAP, volume profile,
+//      footprint (the 4-tool layered model)
+//   3. Structure-anchored stop — compares structure vs ATR envelope
+//   4. Structural targets — TP1 at first opposing structure, TP2 capped
+//      or extended based on regime
+//   5. Score — all old factors PLUS triggerQuality, locationQuality,
+//      footprint bonus (soft weights, never hard gates)
 export function buildCandidate(
   strategy: StrategyId,
   ctx: InstrumentContext,
@@ -28,7 +39,6 @@ export function buildCandidate(
 
   let side: Side = "flat";
   let entry = price;
-  let stop = price;
   const reasons: string[] = [];
 
   switch (strategy) {
@@ -36,12 +46,10 @@ export function buildCandidate(
       if (regime === "strong_trend_up" || regime === "expansion_breakout") {
         side = "long";
         entry = openingRange.high;
-        stop = entry - meta.defaultStopAtrMult * atr;
         reasons.push("Opening-range high break aligned with regime.");
       } else if (regime === "strong_trend_down") {
         side = "short";
         entry = openingRange.low;
-        stop = entry + meta.defaultStopAtrMult * atr;
         reasons.push("Opening-range low break aligned with regime.");
       }
       break;
@@ -49,21 +57,18 @@ export function buildCandidate(
     case "expansion_breakout": {
       side = regime === "strong_trend_down" ? "short" : "long";
       entry = side === "long" ? priorHigh + ctx.instrument.tickSize : priorLow - ctx.instrument.tickSize;
-      stop = side === "long" ? entry - meta.defaultStopAtrMult * atr : entry + meta.defaultStopAtrMult * atr;
       reasons.push("Volatility expansion outside prior range.");
       break;
     }
     case "breakout_continuation": {
       side = regime === "strong_trend_down" ? "short" : "long";
       entry = side === "long" ? priorHigh : priorLow;
-      stop = side === "long" ? entry - meta.defaultStopAtrMult * atr : entry + meta.defaultStopAtrMult * atr;
       reasons.push("Retest of confirmed breakout level.");
       break;
     }
     case "trend_pullback_continuation": {
       side = regime === "strong_trend_down" ? "short" : "long";
       entry = vwap;
-      stop = side === "long" ? vwap - meta.defaultStopAtrMult * atr : vwap + meta.defaultStopAtrMult * atr;
       reasons.push("Pullback into VWAP in qualified trend.");
       break;
     }
@@ -71,7 +76,6 @@ export function buildCandidate(
       const closerToHigh = Math.abs(price - priorHigh) < Math.abs(price - priorLow);
       side = closerToHigh ? "short" : "long";
       entry = closerToHigh ? priorHigh : priorLow;
-      stop = closerToHigh ? entry + meta.defaultStopAtrMult * atr : entry - meta.defaultStopAtrMult * atr;
       reasons.push("Balanced rotation — fade value-area extreme.");
       break;
     }
@@ -79,14 +83,12 @@ export function buildCandidate(
       const closerToHigh = Math.abs(price - priorHigh) < Math.abs(price - priorLow);
       side = closerToHigh ? "short" : "long";
       entry = closerToHigh ? priorHigh : priorLow;
-      stop = closerToHigh ? entry + meta.defaultStopAtrMult * atr : entry - meta.defaultStopAtrMult * atr;
       reasons.push("Mechanical range scalp at extreme.");
       break;
     }
     case "vwap_reclaim_mean_reversion": {
       side = price < vwap ? "long" : "short";
       entry = vwap;
-      stop = side === "long" ? vwap - meta.defaultStopAtrMult * atr : vwap + meta.defaultStopAtrMult * atr;
       reasons.push("VWAP reclaim after stretch.");
       break;
     }
@@ -94,7 +96,6 @@ export function buildCandidate(
       const closerToHigh = Math.abs(price - priorHigh) < Math.abs(price - priorLow);
       side = closerToHigh ? "short" : "long";
       entry = closerToHigh ? priorHigh - ctx.instrument.tickSize : priorLow + ctx.instrument.tickSize;
-      stop = closerToHigh ? priorHigh + meta.defaultStopAtrMult * atr : priorLow - meta.defaultStopAtrMult * atr;
       reasons.push("Failed breakout with reclaim.");
       break;
     }
@@ -102,14 +103,12 @@ export function buildCandidate(
       const closerToHigh = Math.abs(price - priorHigh) < Math.abs(price - priorLow);
       side = closerToHigh ? "short" : "long";
       entry = closerToHigh ? priorHigh - ctx.instrument.tickSize * 2 : priorLow + ctx.instrument.tickSize * 2;
-      stop = closerToHigh ? priorHigh + meta.defaultStopAtrMult * atr : priorLow - meta.defaultStopAtrMult * atr;
       reasons.push("Sweep of obvious liquidity followed by reclaim.");
       break;
     }
     case "reversal_mean_reversion": {
       side = regime === "strong_trend_up" ? "short" : "long";
       entry = price;
-      stop = side === "long" ? price - meta.defaultStopAtrMult * atr : price + meta.defaultStopAtrMult * atr;
       reasons.push("Structure-break reversal against exhausted move.");
       break;
     }
@@ -121,14 +120,36 @@ export function buildCandidate(
 
   if (side === "flat") return null;
 
+  // === Quality layers ======================================================
+  const { quality, triggerRating, locationRating } = evaluateSetupQuality(ctx, meta, side, entry);
+
+  // === Structure-anchored stop ============================================
+  const stopDecision = pickStructureStop(ctx, meta, side, entry, meta.defaultStopAtrMult);
+  const stop = stopDecision.stop;
   const stopDistance = Math.abs(entry - stop);
   if (stopDistance <= 0) return null;
 
-  const tp2 = side === "long" ? entry + meta.defaultTargetR * stopDistance : entry - meta.defaultTargetR * stopDistance;
-  const tp1 = entry + (tp2 - entry) * 0.5;
-  const rMultiple = meta.defaultTargetR;
+  // === Structural targets =================================================
+  const { tp1, tp2, tp1Tag } = pickStructuralTargets(ctx, meta, side, entry, stopDistance);
 
-  const { score: rawScore, breakdown } = scoreCandidate(meta.id, ctx, side, journal, crossMarket);
+  const rMultiple = Math.abs(tp2 - entry) / stopDistance;
+
+  // === Scoring ============================================================
+  const { score: rawScore, breakdown } = scoreCandidate(
+    meta.id, ctx, side, journal, crossMarket,
+    { triggerRating, locationRating, footprintBonus: quality.footprintConfirmation.bonus },
+  );
+
+  // === Reason lines =======================================================
+  reasons.push(`Trigger: ${quality.triggerReason}`);
+  reasons.push(`VWAP: ${quality.vwapContext.reason}`);
+  reasons.push(`Location: ${quality.profileLocation.reason}`);
+  if (quality.footprintConfirmation.available) {
+    reasons.push(`Footprint: ${quality.footprintConfirmation.reason}`);
+  }
+  reasons.push(`Stop: ${stopDecision.reason}`);
+  if (tp1Tag !== "none") reasons.push(`TP1 anchored at ${tp1Tag}.`);
+  if (stopDecision.downgrade) reasons.push("⚠ Wide structure stop — size reduced.");
 
   if (crossMarket && breakdown.crossMarket !== 0) {
     const tag = crossMarket.regimeBias === "risk_on" ? "risk-on" : crossMarket.regimeBias === "risk_off" ? "risk-off" : "neutral";
@@ -136,8 +157,6 @@ export function buildCandidate(
     reasons.push(`Cross-market: ${tag} (${dir}${(breakdown.crossMarket * 100).toFixed(1)}% score).`);
   }
 
-  // Surface the edge the score is actually using — shows Capital Lab preset
-  // first, then realized once the journal has real trades to override it.
   const edge = blendedEdgeForStrategy(meta.id, journal);
   if (edge.realized) {
     reasons.push(
@@ -166,47 +185,56 @@ export function buildCandidate(
     rawScore,
     reasons,
     scoreBreakdown: breakdown,
+    quality,
+    structureStopType: stopDecision.stopType,
+    tp1StructureTag: tp1Tag,
+    abortConditions: meta.quality?.abortConditions ?? [],
   };
 }
 
-// Score a candidate in [0..1] and return every contribution so the UI can
-// show traders why. Weights pre-event-penalty sum to 1.0:
-//   regime fit (0.25) + regime confidence (0.25) + liquidity (0.15)
-// + Capital Lab/journal blended edge (0.25) + side alignment (0.10)
-// − event penalty (0.20) ± cross-market tilt (up to ±0.06).
-// The edge contribution is Bayesian-shrunk: preset dominates when the
-// journal has no closed trades for this strategy; realized dominates
-// after enough samples accumulate.
-// Cross-market tilt uses VIX/DXY/10y: risk-on boosts long equities and
-// penalizes long safe-havens; risk-off does the opposite. Neutral → 0.
+// Scores in [0..1]. Base weights preserved from the prior model, with
+// three new soft inputs added:
+//   trigger  (±0.12) — Price Action + Volume rating
+//   location (±0.08) — blended VWAP + profile-location rating
+//   footprint(0..0.08) — positive-only bonus, never negative when absent
+//
+// Base weights were held roughly constant; trigger+location replace what
+// was previously just "side alignment + regime confidence" implicit quality.
 function scoreCandidate(
   strategy: StrategyId,
   ctx: InstrumentContext,
   side: Side,
   journal: JournalEntry[],
   crossMarket: CrossMarketSnapshot | null,
+  q: { triggerRating: QualityRating; locationRating: QualityRating; footprintBonus: number },
 ): { score: number; breakdown: ScoreBreakdown } {
   const regimeOk = (REGIME_STRATEGY_MAP[ctx.regime] as StrategyId[]).includes(strategy);
-  const regimeScore = regimeOk ? 0.25 : 0.08;
-  const confidenceScore = 0.25 * ctx.regimeConfidence;
-  const liquidityScore = 0.15 * ctx.liquidityScore;
-
+  const regimeScore = regimeOk ? 0.22 : 0.06;        // was 0.25 / 0.08
+  const confidenceScore = 0.20 * ctx.regimeConfidence; // was 0.25
+  const liquidityScore = 0.12 * ctx.liquidityScore;  // was 0.15
   const edgeInfo = blendedEdgeForStrategy(strategy, journal);
-  const edgeScore = 0.25 * edgeInfo.edgeScore;
-
+  const edgeScore = 0.20 * edgeInfo.edgeScore;        // was 0.25
   const eventPenalty = 0.2 * ctx.eventRisk;
 
-  let sideAlignment = 0.1;
+  let sideAlignment = 0.08;                           // was 0.10
   if (
     (side === "long" && (ctx.regime === "strong_trend_up" || ctx.regime === "expansion_breakout")) ||
     (side === "short" && ctx.regime === "strong_trend_down")
   ) {
-    sideAlignment = 0.1;
+    sideAlignment = 0.08;
   }
-
   const crossMarketScore = crossMarketContribution(ctx, side, crossMarket);
 
-  const raw = regimeScore + confidenceScore + liquidityScore + edgeScore + sideAlignment - eventPenalty + crossMarketScore;
+  // New quality inputs — soft weights scaled by their -1..1 ratings.
+  const triggerComponent = 0.12 * q.triggerRating;
+  const locationComponent = 0.08 * q.locationRating;
+  const footprintComponent = Math.max(0, q.footprintBonus);
+
+  const raw =
+    regimeScore + confidenceScore + liquidityScore + edgeScore + sideAlignment
+    + triggerComponent + locationComponent + footprintComponent
+    - eventPenalty + crossMarketScore;
+
   const score = Math.max(0, Math.min(1, raw));
 
   const breakdown: ScoreBreakdown = {
@@ -217,6 +245,9 @@ function scoreCandidate(
     side: sideAlignment,
     event: -eventPenalty,
     crossMarket: crossMarketScore,
+    trigger: triggerComponent,
+    location: locationComponent,
+    footprint: footprintComponent,
     total: score,
     realizedN: edgeInfo.realized?.n ?? 0,
   };
@@ -237,15 +268,12 @@ function crossMarketContribution(
   const longBias = side === "long" ? 1 : side === "short" ? -1 : 0;
   if (longBias === 0) return 0;
 
-  // equity_future: long benefits in risk_on, suffers in risk_off
   if (category === "equity_future") {
     return regimeBias === "risk_on" ? 0.04 * longBias : -0.04 * longBias;
   }
-  // metal_future: classic safe haven — long benefits in risk_off
   if (category === "metal_future") {
     return regimeBias === "risk_off" ? 0.04 * longBias : -0.02 * longBias;
   }
-  // energy_future: cyclical — long benefits modestly in risk_on
   if (category === "energy_future") {
     return regimeBias === "risk_on" ? 0.03 * longBias : -0.03 * longBias;
   }
@@ -255,3 +283,6 @@ function crossMarketContribution(
 export function candidatesForRegime(regime: RegimeId): StrategyId[] {
   return REGIME_STRATEGY_MAP[regime];
 }
+
+// Convenience export for tests.
+export type { SetupQuality, StrategyMeta };

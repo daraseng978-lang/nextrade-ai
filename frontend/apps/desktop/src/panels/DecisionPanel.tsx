@@ -102,6 +102,9 @@ export function DecisionPanel() {
               <ScoreRow label="Side alignment" value={c.scoreBreakdown.side} />
               <ScoreRow label="Event penalty" value={c.scoreBreakdown.event} />
               <ScoreRow label="Cross-market (VIX/DXY)" value={c.scoreBreakdown.crossMarket} />
+              <ScoreRow label="Trigger quality (PA+vol)" value={c.scoreBreakdown.trigger} />
+              <ScoreRow label="Location (VWAP+profile)" value={c.scoreBreakdown.location} />
+              <ScoreRow label="Footprint bonus" value={c.scoreBreakdown.footprint} />
               <tr>
                 <td className="k"><strong>Raw total</strong></td>
                 <td><strong>{c.scoreBreakdown.total.toFixed(2)}</strong></td>

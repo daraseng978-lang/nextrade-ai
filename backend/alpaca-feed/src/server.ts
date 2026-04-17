@@ -5,7 +5,16 @@ import dotenv from "dotenv";
 import { fetchDailyBars, fetchIntradayBars, fetchLatestQuote, type AlpacaConfig } from "./alpaca.js";
 import { fetchYahooBundle, fetchYahooDailyBars } from "./yahoo.js";
 import { fetchCrossMarketSnapshot, type CrossMarketSnapshot } from "./crossMarket.js";
-import { atrFromBars, openingRangeFromBars, priorDayHighLow, spreadFromQuote, vwapFromBars } from "./indicators.js";
+import {
+  atrFromBars,
+  avgVolume,
+  openingRangeFromBars,
+  priorDayHighLow,
+  spreadFromQuote,
+  volumeProfile,
+  vwapFromBars,
+  vwapSlopeFromBars,
+} from "./indicators.js";
 import { classifyRegime } from "./regime.js";
 import { SYMBOL_MAPPINGS, scale, type SymbolMapping } from "./mapping.js";
 import type { AlpacaBar, InstrumentContext } from "./types.js";
@@ -130,6 +139,10 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
   const etfOR = openingRangeFromBars(intraday, 3);
   const etfPD = priorDayHighLow(daily);
   const etfSpread = quote ? spreadFromQuote(quote.ap, quote.bp) : 0;
+  // Quality-layer inputs — crude profile + recent bars + vwap slope + avg vol.
+  const profile = volumeProfile(intraday);
+  const slope = vwapSlopeFromBars(intraday);
+  const avgVol = avgVolume(intraday);
 
   // Regime classification works on ETF bars directly (ratios don't need scaling)
   const regimeResult = classifyRegime(intraday, daily, etfAtr);
@@ -167,6 +180,21 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
     // Brief — leave it neutral here so we don't double-count.
     eventRisk: 0.15,
     spread: scale(Math.max(etfSpread, mapping.futures.tickSize), m),
+    // Quality-layer fields — scale profile levels into futures space too.
+    poc: profile ? scale(profile.poc, m) : undefined,
+    vah: profile ? scale(profile.vah, m) : undefined,
+    val: profile ? scale(profile.val, m) : undefined,
+    recentBars: intraday.slice(-8).map(b => ({
+      t: b.t,
+      o: scale(b.o, m),
+      h: scale(b.h, m),
+      l: scale(b.l, m),
+      c: scale(b.c, m),
+      v: b.v,
+    })),
+    avgBarVolume: avgVol,
+    vwapSlope: scale(slope, m),
+    footprintAvailable: false, // no L1 tick data from Alpaca IEX free tier
   };
 }
 
@@ -197,6 +225,9 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
   const vwap = vwapFromBars(intraday);
   const or = openingRangeFromBars(intraday, 3);
   const pd = priorDayHighLow(daily);
+  const profile = volumeProfile(intraday);
+  const slope = vwapSlopeFromBars(intraday);
+  const avgVol = avgVolume(intraday);
 
   const regimeResult = classifyRegime(intraday, daily, atr);
 
@@ -217,6 +248,13 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
     liquidityScore: parseFloat(regimeResult.liquidityScore.toFixed(3)),
     eventRisk: 0.15,
     spread,
+    poc: profile?.poc,
+    vah: profile?.vah,
+    val: profile?.val,
+    recentBars: intraday.slice(-8),
+    avgBarVolume: avgVol,
+    vwapSlope: slope,
+    footprintAvailable: false,
   };
 }
 

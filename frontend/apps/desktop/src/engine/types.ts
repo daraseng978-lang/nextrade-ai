@@ -55,6 +55,73 @@ export interface InstrumentContext {
   liquidityScore: number;   // 0..1
   eventRisk: number;        // 0..1
   spread: number;
+  // --- Quality-layer inputs (optional — degrades gracefully) -----------
+  // Crude volume profile computed by the backend from intraday bars.
+  // Real profile needs tick data; POC/VAH/VAL here are bar-level proxies.
+  poc?: number;
+  vah?: number;
+  val?: number;
+  // Recent OHLCV for price-action + volume trigger detection (latest last).
+  recentBars?: Array<{ t: string; o: number; h: number; l: number; c: number; v: number }>;
+  avgBarVolume?: number;
+  // VWAP slope — positive = rising, negative = falling.
+  vwapSlope?: number;
+  // Footprint / order-flow fields — optional. If footprintAvailable is
+  // false or missing, downstream logic degrades to reduced-mode.
+  footprintAvailable?: boolean;
+  deltaLastBar?: number;
+  cumulativeDelta?: number;
+}
+
+// ===== Quality layer types ==================================================
+
+export type VwapPreference = "above" | "below" | "reclaim_above" | "reclaim_below" | "flat" | "any";
+export type ProfileLocationTag =
+  | "poc" | "vah" | "val"
+  | "hvn" | "lvn"
+  | "range_edge" | "value_edge"
+  | "failed_auction_edge"
+  | "random"
+  | "unknown";
+export type TriggerKind =
+  | "breakout_close" | "retest_hold" | "rejection"
+  | "reclaim" | "sweep_reclaim" | "structure_break";
+export type FootprintSignal =
+  | "absorption" | "exhaustion"
+  | "imbalance_with" | "imbalance_against"
+  | "delta_divergence" | "none";
+export type StructureStopType =
+  | "or_invalidation" | "retest_fail" | "sweep_extreme"
+  | "range_opposite_edge" | "swing_structure"
+  | "vwap_break" | "atr_only";
+
+// Rating, -1..1. Positive supports the trade; 0 is neutral; negative opposes.
+export type QualityRating = number;
+
+export interface VwapExpectation {
+  preference: VwapPreference;
+  slopeMatters: boolean;
+}
+export interface ProfileExpectation {
+  preferredLocations: ProfileLocationTag[];
+  // true for range/reversal (location is the thesis); false for breakout/trend
+  // where trigger quality carries the setup.
+  requiresLocation: boolean;
+}
+export interface FootprintExpectation {
+  preferredSignals: FootprintSignal[];
+}
+
+// Per-strategy metadata for the 4-tool quality model. Never universal;
+// each strategy family weights these differently (see evaluateSetupQuality).
+export interface StrategyQualityMeta {
+  primaryTrigger: TriggerKind;
+  vwap: VwapExpectation;
+  profile: ProfileExpectation;
+  footprint: FootprintExpectation;
+  stopType: StructureStopType;
+  firstStructureTargets: ProfileLocationTag[];
+  abortConditions: string[];
 }
 
 export interface StrategyEdge {
@@ -74,6 +141,8 @@ export interface StrategyMeta {
   defaultStopAtrMult: number;
   defaultTargetR: number;
   edge: StrategyEdge;
+  // Optional quality metadata — passive strategies omit it.
+  quality?: StrategyQualityMeta;
 }
 
 export interface ScoreBreakdown {
@@ -84,8 +153,35 @@ export interface ScoreBreakdown {
   side: number;        // side alignment contribution
   event: number;       // event-risk penalty (negative)
   crossMarket: number; // VIX/DXY risk-on/off adjustment (±, can be 0)
+  trigger: number;     // Price Action + Volume trigger quality contribution
+  location: number;    // Volume Profile location quality contribution
+  footprint: number;   // Footprint bonus (only positive; absent = 0)
   total: number;       // clamped to [0..1]
   realizedN: number;   // number of closed journal trades feeding the edge
+}
+
+// Quality-layer result attached to every generated candidate so the UI
+// can show operators WHY a setup was graded the way it was.
+export interface SetupQuality {
+  triggerQuality: QualityRating;      // -1..1 — price action + volume
+  locationQuality: QualityRating;     // -1..1 — volume profile location
+  vwapContext: {
+    rating: QualityRating;            // -1..1 — alignment with preference
+    alignment: "strong" | "mild" | "neutral" | "opposed";
+    reason: string;
+  };
+  profileLocation: {
+    tag: ProfileLocationTag;
+    rating: QualityRating;
+    reason: string;
+  };
+  footprintConfirmation: {
+    available: boolean;
+    signal: FootprintSignal;
+    bonus: number;                    // 0..0.1 — positive-only bonus
+    reason: string;
+  };
+  triggerReason: string;
 }
 
 export type RegimeBias = "risk_on" | "risk_off" | "neutral";
@@ -113,13 +209,18 @@ export interface PlaybookCandidate {
   entry: number;
   stop: number;
   target: number; // equivalent to tp2
-  tp1: number;    // partial scale-out (50% of full R target)
+  tp1: number;    // partial scale-out (first structural target)
   tp2: number;    // full R target (same as `target`)
   stopDistance: number;
   rMultiple: number;
   rawScore: number;       // 0..1
   reasons: string[];
   scoreBreakdown?: ScoreBreakdown;
+  // Quality-layer annotations — optional so legacy fixtures still type-check.
+  quality?: SetupQuality;
+  structureStopType?: StructureStopType;
+  tp1StructureTag?: ProfileLocationTag | "vwap" | "or" | "prior_high" | "prior_low" | "none";
+  abortConditions?: string[];
 }
 
 export interface ValidationProfile {
