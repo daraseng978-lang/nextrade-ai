@@ -15,7 +15,8 @@ export interface SymbolMapping {
   etf: string;             // Alpaca symbol to fetch
   multiplier: number;      // futures_price ≈ etf_price * multiplier
   yahooSymbol: string;     // Yahoo Finance symbol (ES=F, NQ=F, …)
-  twelveDataSymbol: string; // Twelve Data symbol — plain root for most, exchange-qualified where needed
+  twelveDataSymbol: string;   // Twelve Data symbol to fetch (futures root or ETF proxy)
+  twelveDataNeedsScale?: boolean; // true when twelveDataSymbol is an ETF — scale bars by multiplier before caching
 }
 
 export const SYMBOL_MAPPINGS: SymbolMapping[] = [
@@ -39,7 +40,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "QQQ",
     multiplier: 50.0, // QQQ ≈ Nasdaq / 40; MNQ tracks Nasdaq × 1
     yahooSymbol: "NQ=F",
-    twelveDataSymbol: "NQ:CME",
+    twelveDataSymbol: "QQQ", twelveDataNeedsScale: true,
   },
   {
     futures: {
@@ -50,7 +51,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "DIA",
     multiplier: 100.0, // DIA ≈ Dow / 100
     yahooSymbol: "YM=F",
-    twelveDataSymbol: "YM:CBOT",
+    twelveDataSymbol: "DIA", twelveDataNeedsScale: true,
   },
   {
     futures: {
@@ -61,7 +62,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "IWM",
     multiplier: 10.0,
     yahooSymbol: "RTY=F",
-    twelveDataSymbol: "RTY:CME",
+    twelveDataSymbol: "IWM", twelveDataNeedsScale: true,
   },
   {
     futures: {

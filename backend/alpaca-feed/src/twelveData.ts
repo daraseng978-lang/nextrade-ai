@@ -4,9 +4,10 @@ import type { AlpacaBar } from "./types.js";
 // We only use it for daily bars; intraday still comes from Alpaca
 // (quotes are fine there — the IEX tier just has sparse daily bars).
 //
-// Symbol convention: ES and CL work as plain roots; NQ/YM/RTY need
-// exchange qualifiers (NQ:CME, YM:CBOT, RTY:CME). GC (gold) requires
-// a paid plan — falls back to scaled GLD ETF bars automatically.
+// Symbol convention: ES and CL are available as native futures roots.
+// NQ/YM/RTY don't exist in Twelve Data's reference data, so we fetch
+// their ETF proxies (QQQ/DIA/IWM) instead and scale on the caller side.
+// GC requires a paid plan; falls back to scaled GLD ETF from Alpaca.
 
 const HOST = "https://api.twelvedata.com";
 

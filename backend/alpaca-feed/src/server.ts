@@ -335,9 +335,13 @@ async function refreshYahooDailies(): Promise<void> {
     }
     if (!filled && TWELVEDATA_API_KEY) {
       try {
-        const bars = await fetchTwelveDataDailyBars(mapping.twelveDataSymbol, TWELVEDATA_API_KEY);
+        let bars = await fetchTwelveDataDailyBars(mapping.twelveDataSymbol, TWELVEDATA_API_KEY);
+        if (mapping.twelveDataNeedsScale) {
+          const m = mapping.multiplier;
+          bars = bars.map(b => ({ ...b, o: b.o * m, h: b.h * m, l: b.l * m, c: b.c * m }));
+        }
         if (bars.length >= 2) {
-          yahooDailyCache.set(mapping.yahooSymbol, bars); // reuse the same cache slot
+          yahooDailyCache.set(mapping.yahooSymbol, bars);
           twelve++;
           filled = true;
         }
