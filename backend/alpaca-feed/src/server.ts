@@ -154,10 +154,33 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
   const yahooDaily = yahooDailyCache.get(mapping.yahooSymbol);
   let priorHigh = scale(etfPD.high, m);
   let priorLow = scale(etfPD.low, m);
+  let priorSource: "alpaca_iex" | "yahoo" | "atr_fallback" = "alpaca_iex";
+  let priorLevelsStale = false;
   if (yahooDaily && yahooDaily.length >= 2) {
     const yahooPD = priorDayHighLow(yahooDaily);
     priorHigh = yahooPD.high;
     priorLow = yahooPD.low;
+    priorSource = "yahoo";
+  }
+
+  // Sanity check: if priorHigh/priorLow deviate >15% from current futures-
+  // space price, they're almost certainly from a stale IEX aggregate (the
+  // IEX free tier reports daily bars only when trades happened on IEX,
+  // which for mega-liquid ETFs is sometimes MONTHS ago). Fall back to
+  // ATR-derived placeholders so we keep producing signals but don't put
+  // out obviously-wrong entries like MNQ @ 29302 when spot is 26800.
+  const futuresPrice = scale(etfPrice, m);
+  const futuresAtr = scale(etfAtr, m);
+  const priorHighStale = priorHigh > 0 && Math.abs(priorHigh - futuresPrice) / futuresPrice > 0.15;
+  const priorLowStale  = priorLow  > 0 && Math.abs(priorLow  - futuresPrice) / futuresPrice > 0.15;
+  if (priorHighStale || priorLowStale || priorHigh <= 0 || priorLow <= 0) {
+    if (futuresPrice > 0 && futuresAtr > 0) {
+      priorHigh = futuresPrice + 1.5 * futuresAtr;
+      priorLow  = futuresPrice - 1.5 * futuresAtr;
+      priorLevelsStale = true;
+      priorSource = "atr_fallback";
+      console.warn(`[sanity] ${mapping.futures.symbol}: priorH/L stale (spot ${futuresPrice.toFixed(2)}, got ${priorHigh.toFixed(2)}/${priorLow.toFixed(2)}) — using ATR fallback`);
+    }
   }
 
   // Scale everything else into futures-space so the decision engine
@@ -195,6 +218,8 @@ async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContex
     avgBarVolume: avgVol,
     vwapSlope: scale(slope, m),
     footprintAvailable: false, // no L1 tick data from Alpaca IEX free tier
+    priorLevelsStale,
+    priorLevelsSource: priorSource,
   };
 }
 
@@ -235,14 +260,34 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
   // plausible spread so downstream code doesn't divide by zero.
   const spread = mapping.futures.tickSize;
 
+  // Same sanity check as the Alpaca path — Yahoo usually has clean
+  // daily bars, but in degraded conditions (empty response, rate-
+  // limited retries exhausted) we can still end up with zeros or
+  // wildly stale numbers. ATR fallback keeps signals sane.
+  let priorHigh = pd.high;
+  let priorLow = pd.low;
+  let priorLevelsStale = false;
+  let priorLevelsSource: "alpaca_iex" | "yahoo" | "atr_fallback" = "yahoo";
+  const highStale = priorHigh > 0 && price > 0 && Math.abs(priorHigh - price) / price > 0.15;
+  const lowStale  = priorLow  > 0 && price > 0 && Math.abs(priorLow  - price) / price > 0.15;
+  if (highStale || lowStale || priorHigh <= 0 || priorLow <= 0) {
+    if (price > 0 && atr > 0) {
+      priorHigh = price + 1.5 * atr;
+      priorLow = price - 1.5 * atr;
+      priorLevelsStale = true;
+      priorLevelsSource = "atr_fallback";
+      console.warn(`[sanity] ${mapping.futures.symbol}: Yahoo priorH/L stale — using ATR fallback`);
+    }
+  }
+
   return {
     instrument: mapping.futures,
     price,
     atr,
     vwap,
     openingRange: { high: or.high, low: or.low },
-    priorHigh: pd.high,
-    priorLow: pd.low,
+    priorHigh,
+    priorLow,
     regime: regimeResult.regime,
     regimeConfidence: parseFloat(regimeResult.confidence.toFixed(3)),
     liquidityScore: parseFloat(regimeResult.liquidityScore.toFixed(3)),
@@ -255,6 +300,8 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
     avgBarVolume: avgVol,
     vwapSlope: slope,
     footprintAvailable: false,
+    priorLevelsStale,
+    priorLevelsSource,
   };
 }
 

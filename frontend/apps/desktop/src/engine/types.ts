@@ -71,6 +71,13 @@ export interface InstrumentContext {
   footprintAvailable?: boolean;
   deltaLastBar?: number;
   cumulativeDelta?: number;
+  // Prior H/L provenance — when the feed can't produce reliable daily
+  // bars (Alpaca IEX free tier returns ancient aggregates) the backend
+  // swaps in ATR-based placeholders and flags them as stale here. The
+  // decision engine can still produce signals; strategies that depend
+  // on prior H/L downgrade confidence and show a warning.
+  priorLevelsStale?: boolean;
+  priorLevelsSource?: "alpaca_iex" | "yahoo" | "atr_fallback";
 }
 
 // ===== Quality layer types ==================================================
