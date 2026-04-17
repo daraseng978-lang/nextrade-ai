@@ -91,7 +91,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     multiplier: 11.0, // GLD ≈ gold_price / 10 per share; small tracking offset
     yahooSymbol: "GC=F",
     stooqSymbol: "GC.F",
-    twelveDataSymbol: "GC",
+    twelveDataSymbol: "GLD", twelveDataNeedsScale: true, // native GC needs paid plan
   },
 ];
 
