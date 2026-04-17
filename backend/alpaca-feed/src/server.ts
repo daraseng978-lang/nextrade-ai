@@ -28,6 +28,11 @@ const {
   MORNING_BRIEF_ENABLED = "true",
   MARKET_PROVIDER = "alpaca", // "alpaca" (ETF proxy, tight quotes) | "yahoo" (real futures, ~15min delay)
   CROSS_MARKET_ENABLED = "true",
+  // When provider=yahoo, we pull data at these cron times (ET) to stay
+  // under Yahoo's rate limit. Two pulls/day is enough for a swing/
+  // discretionary setup; the cached snapshot serves every /market/contexts
+  // call in between. Empty string disables the schedule.
+  YAHOO_REFRESH_CRON = "0 30 8,12 * * 1-5", // 8:30am + 12:00pm ET weekdays
 } = process.env;
 
 const provider: "alpaca" | "yahoo" = MARKET_PROVIDER === "yahoo" ? "yahoo" : "alpaca";
@@ -45,14 +50,17 @@ const alpacaCfg: AlpacaConfig = {
   feed: ALPACA_FEED === "sip" ? "sip" : "iex",
 };
 
-// Yahoo is ~15-min delayed and rate-limits aggressively; cache longer
-// (30s) when using Yahoo so polling frontends don't storm the API.
-const defaultCacheTtl = provider === "yahoo" ? 30_000 : 4000;
+// When MARKET_PROVIDER=yahoo, we stop serving fresh fetches on every
+// request — a cron pulls 2x/day (see YAHOO_REFRESH_CRON) and the cache
+// serves everything in between. Cache TTL is effectively "forever" in
+// yahoo mode; operator can force a refresh via POST /market/refresh.
+const YAHOO_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h; cron invalidates earlier
+const defaultCacheTtl = provider === "yahoo" ? YAHOO_CACHE_TTL : 4000;
 const cacheTtl = Math.max(500, Number(CACHE_TTL_MS) || defaultCacheTtl);
 
 let cachedSnapshot: { at: number; contexts: InstrumentContext[] } | null = null;
-// Cross-market data changes slowly and Yahoo rate-limits; cache it longer.
-const crossMarketTtl = 30_000;
+// Cross-market follows the same schedule as futures in yahoo mode.
+const crossMarketTtl = provider === "yahoo" ? YAHOO_CACHE_TTL : 30_000;
 let cachedCrossMarket: { at: number; snapshot: CrossMarketSnapshot } | null = null;
 
 async function getCrossMarketSnapshot(): Promise<CrossMarketSnapshot> {
@@ -332,6 +340,27 @@ app.get("/market/cross", async (_req, res) => {
   }
 });
 
+// Force a fresh pull of futures + cross-market. Useful when operator
+// wants data outside the scheduled refresh windows (e.g. a surprise
+// Fed headline dropped at 11:03am). Rate-limited by providers.
+app.post("/market/refresh", async (_req, res) => {
+  try {
+    const contexts = await buildSnapshot();
+    cachedSnapshot = { at: Date.now(), contexts };
+    let cross: CrossMarketSnapshot | null = null;
+    if (CROSS_MARKET_ENABLED === "true") {
+      cross = await fetchCrossMarketSnapshot().catch(() => null);
+      if (cross) cachedCrossMarket = { at: Date.now(), snapshot: cross };
+    }
+    console.log(`[/market/refresh] refreshed ${contexts.length} contexts + cross=${cross ? "✓" : "✗"}`);
+    res.json({ ok: true, contexts: contexts.length, crossMarket: cross });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/market/refresh] failure:", msg);
+    res.status(502).json({ ok: false, error: msg });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Morning brief builder (simplified backend version)
 // ---------------------------------------------------------------------------
@@ -517,5 +546,47 @@ app.listen(port, () => {
     console.log(`[alpaca-feed] morning brief: SCHEDULED (${MORNING_BRIEF_CRON})`);
   } else if (MORNING_BRIEF_ENABLED === "true") {
     console.log(`[alpaca-feed] morning brief: DISABLED (no telegram config)`);
+  }
+
+  // Scheduled Yahoo refresh — only when provider=yahoo. Two pulls per
+  // trading day is enough for discretionary/swing workflows and keeps
+  // us comfortably under Yahoo's rate limits. POST /market/refresh for
+  // ad-hoc updates.
+  if (provider === "yahoo" && YAHOO_REFRESH_CRON) {
+    cron.schedule(YAHOO_REFRESH_CRON, async () => {
+      try {
+        console.log("[yahoo-refresh] scheduled pull starting...");
+        const contexts = await buildSnapshot();
+        cachedSnapshot = { at: Date.now(), contexts };
+        if (CROSS_MARKET_ENABLED === "true") {
+          const cross = await fetchCrossMarketSnapshot().catch(() => null);
+          if (cross) cachedCrossMarket = { at: Date.now(), snapshot: cross };
+        }
+        console.log(`[yahoo-refresh] done — ${contexts.length} contexts cached`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[yahoo-refresh] error:", msg);
+      }
+    });
+    console.log(`[alpaca-feed] yahoo refresh: SCHEDULED (${YAHOO_REFRESH_CRON})`);
+
+    // Do an initial pull 5s after startup so we have data right away,
+    // without blocking the listen() callback. Failures are logged and
+    // the operator can retry via /market/refresh.
+    setTimeout(async () => {
+      try {
+        console.log("[yahoo-refresh] initial pull on startup...");
+        const contexts = await buildSnapshot();
+        cachedSnapshot = { at: Date.now(), contexts };
+        if (CROSS_MARKET_ENABLED === "true") {
+          const cross = await fetchCrossMarketSnapshot().catch(() => null);
+          if (cross) cachedCrossMarket = { at: Date.now(), snapshot: cross };
+        }
+        console.log(`[yahoo-refresh] initial pull done — ${contexts.length} contexts cached`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[yahoo-refresh] initial pull error:", msg);
+      }
+    }, 5000);
   }
 });
