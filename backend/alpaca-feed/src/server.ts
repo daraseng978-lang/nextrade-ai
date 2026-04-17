@@ -9,6 +9,7 @@ import { SYMBOL_MAPPINGS, scale, type SymbolMapping } from "./mapping.js";
 import type { InstrumentContext } from "./types.js";
 import { dispatchTradersPost, redactWebhook, validatePayload } from "./dispatch.js";
 import { sendTelegramMessage } from "./telegram.js";
+import { getEconomicCalendar, type EconomicEvent } from "./calendar.js";
 
 dotenv.config();
 
@@ -196,6 +197,7 @@ interface SectorRotation {
 
 interface MorningBrief {
   date: string;
+  economicCalendar: EconomicEvent[];
   overnightSummary: OvernightSummary[];
   sectorRotation: SectorRotation;
 }
@@ -247,21 +249,31 @@ function buildSectorRotation(contexts: InstrumentContext[]): SectorRotation {
   return { capitalFlow, relativeStrength };
 }
 
-function buildMorningBrief(contexts: InstrumentContext[]): MorningBrief {
+async function buildMorningBrief(contexts: InstrumentContext[]): Promise<MorningBrief> {
   const now = new Date();
+  const calendar = await getEconomicCalendar();
   return {
     date: now.toISOString().slice(0, 10),
+    economicCalendar: calendar,
     overnightSummary: contexts.map(buildOvernightSummary),
     sectorRotation: buildSectorRotation(contexts),
   };
 }
 
 function formatBriefMessage(brief: MorningBrief): string {
-  const { overnightSummary, sectorRotation, date } = brief;
+  const { economicCalendar, overnightSummary, sectorRotation, date } = brief;
+  const highImpact = economicCalendar.filter(e => e.impact === "high");
   const bullets: string[] = [];
   bullets.push(`📋 Morning Brief · ${date}`);
   bullets.push("");
   bullets.push(`Flow: ${sectorRotation.capitalFlow.replace("_", " ")}`);
+  if (highImpact.length > 0) {
+    bullets.push("");
+    bullets.push("High-impact events:");
+    for (const e of highImpact) {
+      bullets.push(`• ${e.time} ${e.event}`);
+    }
+  }
   bullets.push("");
   bullets.push("Overnight bias:");
   for (const o of overnightSummary.slice(0, 6)) {
@@ -296,7 +308,7 @@ app.listen(port, () => {
       try {
         console.log("[morning-brief] executing scheduled brief...");
         const contexts = await buildSnapshot();
-        const brief = buildMorningBrief(contexts);
+        const brief = await buildMorningBrief(contexts);
         const message = formatBriefMessage(brief);
         const result = await sendTelegramMessage(message, {
           botToken: TELEGRAM_BOT_TOKEN,
