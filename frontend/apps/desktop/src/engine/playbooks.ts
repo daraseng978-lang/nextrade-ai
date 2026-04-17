@@ -1,4 +1,5 @@
 import type {
+  CrossMarketSnapshot,
   InstrumentContext,
   PlaybookCandidate,
   RegimeId,
@@ -20,6 +21,7 @@ export function buildCandidate(
   strategy: StrategyId,
   ctx: InstrumentContext,
   journal: JournalEntry[] = [],
+  crossMarket: CrossMarketSnapshot | null = null,
 ): PlaybookCandidate | null {
   const meta = STRATEGIES[strategy];
   const { price, atr, vwap, openingRange, priorHigh, priorLow, regime } = ctx;
@@ -126,7 +128,13 @@ export function buildCandidate(
   const tp1 = entry + (tp2 - entry) * 0.5;
   const rMultiple = meta.defaultTargetR;
 
-  const { score: rawScore, breakdown } = scoreCandidate(meta.id, ctx, side, journal);
+  const { score: rawScore, breakdown } = scoreCandidate(meta.id, ctx, side, journal, crossMarket);
+
+  if (crossMarket && breakdown.crossMarket !== 0) {
+    const tag = crossMarket.regimeBias === "risk_on" ? "risk-on" : crossMarket.regimeBias === "risk_off" ? "risk-off" : "neutral";
+    const dir = breakdown.crossMarket > 0 ? "+" : "";
+    reasons.push(`Cross-market: ${tag} (${dir}${(breakdown.crossMarket * 100).toFixed(1)}% score).`);
+  }
 
   // Surface the edge the score is actually using — shows Capital Lab preset
   // first, then realized once the journal has real trades to override it.
@@ -165,15 +173,18 @@ export function buildCandidate(
 // show traders why. Weights pre-event-penalty sum to 1.0:
 //   regime fit (0.25) + regime confidence (0.25) + liquidity (0.15)
 // + Capital Lab/journal blended edge (0.25) + side alignment (0.10)
-// − event penalty (0.20).
+// − event penalty (0.20) ± cross-market tilt (up to ±0.06).
 // The edge contribution is Bayesian-shrunk: preset dominates when the
 // journal has no closed trades for this strategy; realized dominates
 // after enough samples accumulate.
+// Cross-market tilt uses VIX/DXY/10y: risk-on boosts long equities and
+// penalizes long safe-havens; risk-off does the opposite. Neutral → 0.
 function scoreCandidate(
   strategy: StrategyId,
   ctx: InstrumentContext,
   side: Side,
   journal: JournalEntry[],
+  crossMarket: CrossMarketSnapshot | null,
 ): { score: number; breakdown: ScoreBreakdown } {
   const regimeOk = (REGIME_STRATEGY_MAP[ctx.regime] as StrategyId[]).includes(strategy);
   const regimeScore = regimeOk ? 0.25 : 0.08;
@@ -193,7 +204,9 @@ function scoreCandidate(
     sideAlignment = 0.1;
   }
 
-  const raw = regimeScore + confidenceScore + liquidityScore + edgeScore + sideAlignment - eventPenalty;
+  const crossMarketScore = crossMarketContribution(ctx, side, crossMarket);
+
+  const raw = regimeScore + confidenceScore + liquidityScore + edgeScore + sideAlignment - eventPenalty + crossMarketScore;
   const score = Math.max(0, Math.min(1, raw));
 
   const breakdown: ScoreBreakdown = {
@@ -203,10 +216,40 @@ function scoreCandidate(
     edge: edgeScore,
     side: sideAlignment,
     event: -eventPenalty,
+    crossMarket: crossMarketScore,
     total: score,
     realizedN: edgeInfo.realized?.n ?? 0,
   };
   return { score, breakdown };
+}
+
+// Maps VIX/DXY/TNX-derived risk_on/off/neutral bias into a ±0.06 tilt
+// on the raw score. Equity futures (MES/MNQ/MYM/M2K) love risk-on long;
+// metals (MGC) love risk-off long. Energy (MCL) is mostly DXY-sensitive.
+function crossMarketContribution(
+  ctx: InstrumentContext,
+  side: Side,
+  crossMarket: CrossMarketSnapshot | null,
+): number {
+  if (!crossMarket || crossMarket.regimeBias === "neutral") return 0;
+  const { regimeBias } = crossMarket;
+  const { category } = ctx.instrument;
+  const longBias = side === "long" ? 1 : side === "short" ? -1 : 0;
+  if (longBias === 0) return 0;
+
+  // equity_future: long benefits in risk_on, suffers in risk_off
+  if (category === "equity_future") {
+    return regimeBias === "risk_on" ? 0.04 * longBias : -0.04 * longBias;
+  }
+  // metal_future: classic safe haven — long benefits in risk_off
+  if (category === "metal_future") {
+    return regimeBias === "risk_off" ? 0.04 * longBias : -0.02 * longBias;
+  }
+  // energy_future: cyclical — long benefits modestly in risk_on
+  if (category === "energy_future") {
+    return regimeBias === "risk_on" ? 0.03 * longBias : -0.03 * longBias;
+  }
+  return 0;
 }
 
 export function candidatesForRegime(regime: RegimeId): StrategyId[] {

@@ -83,8 +83,26 @@ export interface ScoreBreakdown {
   edge: number;        // Capital Lab + journal blended edge contribution
   side: number;        // side alignment contribution
   event: number;       // event-risk penalty (negative)
+  crossMarket: number; // VIX/DXY risk-on/off adjustment (±, can be 0)
   total: number;       // clamped to [0..1]
   realizedN: number;   // number of closed journal trades feeding the edge
+}
+
+export type RegimeBias = "risk_on" | "risk_off" | "neutral";
+
+export interface CrossMarketTicker {
+  symbol: string;
+  price: number;
+  previousClose: number;
+  changePct: number;
+}
+
+export interface CrossMarketSnapshot {
+  vix: CrossMarketTicker | null;
+  dxy: CrossMarketTicker | null;
+  tnx: CrossMarketTicker | null;
+  regimeBias: RegimeBias;
+  summary: string;
 }
 
 export interface PlaybookCandidate {

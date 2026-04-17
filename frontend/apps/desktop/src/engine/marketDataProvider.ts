@@ -1,5 +1,7 @@
-import type { InstrumentContext } from "./types";
+import type { CrossMarketSnapshot, CrossMarketTicker, InstrumentContext } from "./types";
 import { mockContexts } from "./mockData";
+
+export type { CrossMarketSnapshot, CrossMarketTicker };
 
 // Pluggable market data provider.
 // Every provider returns the same InstrumentContext[] shape so the
@@ -13,21 +15,6 @@ export interface MarketDataProviderConfig {
   pollIntervalMs?: number; // default 5000
   driftFactor?: number;    // live_mock price drift per poll, default 0.0008
   apiKey?: string;         // optional auth header for REST
-}
-
-export interface CrossMarketTicker {
-  symbol: string;
-  price: number;
-  previousClose: number;
-  changePct: number;
-}
-
-export interface CrossMarketSnapshot {
-  vix: CrossMarketTicker | null;
-  dxy: CrossMarketTicker | null;
-  tnx: CrossMarketTicker | null;
-  regimeBias: "risk_on" | "risk_off" | "neutral";
-  summary: string;
 }
 
 export interface FeedSnapshot {

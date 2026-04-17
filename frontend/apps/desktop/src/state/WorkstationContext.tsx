@@ -316,10 +316,10 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
     for (const ctx of enrichedContexts) {
-      out[ctx.instrument.symbol] = decide(ctx, account, killSwitch, journal);
+      out[ctx.instrument.symbol] = decide(ctx, account, killSwitch, journal, crossMarket);
     }
     return out;
-  }, [enrichedContexts, account, killSwitch, journal]);
+  }, [enrichedContexts, account, killSwitch, journal, crossMarket]);
 
   const selected = signals[selectedSymbol] ?? signals[contexts[0].instrument.symbol];
 

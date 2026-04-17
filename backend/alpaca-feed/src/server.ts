@@ -347,6 +347,7 @@ interface MorningBrief {
   economicCalendar: EconomicEvent[];
   overnightSummary: OvernightSummary[];
   sectorRotation: SectorRotation;
+  crossMarket: CrossMarketSnapshot | null;
 }
 
 function buildOvernightSummary(ctx: InstrumentContext): OvernightSummary {
@@ -398,40 +399,80 @@ function buildSectorRotation(contexts: InstrumentContext[]): SectorRotation {
 
 async function buildMorningBrief(contexts: InstrumentContext[]): Promise<MorningBrief> {
   const now = new Date();
-  const calendar = await getEconomicCalendar();
+  const includeCross = CROSS_MARKET_ENABLED === "true";
+  const [calendar, crossMarket] = await Promise.all([
+    getEconomicCalendar(),
+    includeCross
+      ? getCrossMarketSnapshot().catch(() => null)
+      : Promise.resolve(null),
+  ]);
   return {
     date: now.toISOString().slice(0, 10),
     economicCalendar: calendar,
     overnightSummary: contexts.map(buildOvernightSummary),
     sectorRotation: buildSectorRotation(contexts),
+    crossMarket,
   };
 }
 
+// Richer pre-market brief modelled on SignalForge's Telegram layout —
+// TL;DR one-liner up top, cross-market snapshot, then the usual blocks.
+// Operators pasting this into a group chat get the headline in 3 seconds
+// and the detail if they want it.
 function formatBriefMessage(brief: MorningBrief): string {
-  const { economicCalendar, overnightSummary, sectorRotation, date } = brief;
+  const { economicCalendar, overnightSummary, sectorRotation, date, crossMarket } = brief;
   const highImpact = economicCalendar.filter(e => e.impact === "high");
-  const bullets: string[] = [];
-  bullets.push(`📋 Morning Brief · ${date}`);
-  bullets.push("");
-  bullets.push(`Flow: ${sectorRotation.capitalFlow.replace("_", " ")}`);
+  const bullishN = overnightSummary.filter(o => o.sessionBias === "bullish").length;
+  const bearishN = overnightSummary.filter(o => o.sessionBias === "bearish").length;
+  const flow = sectorRotation.capitalFlow.replace("_", " ");
+
+  const tldr =
+    crossMarket && crossMarket.regimeBias !== "neutral"
+      ? `${crossMarket.regimeBias.replace("_", "-")} tape · ${bullishN} long / ${bearishN} short bias · ${flow}`
+      : `${flow} flow · ${bullishN} long / ${bearishN} short bias`;
+
+  const lines: string[] = [];
+  lines.push(`📋 Pre-Market Brief · ${date}`);
+  lines.push(`TL;DR: ${tldr}`);
+  lines.push("");
+
+  if (crossMarket) {
+    lines.push("🌐 Cross-market:");
+    lines.push(`  ${crossMarket.summary}`);
+    lines.push("");
+  }
+
   if (highImpact.length > 0) {
-    bullets.push("");
-    bullets.push("High-impact events:");
-    for (const e of highImpact) {
-      bullets.push(`• ${e.time} ${e.event}`);
+    lines.push("⚠️ High-impact events:");
+    for (const e of highImpact.slice(0, 6)) {
+      const deltaNote = e.forecast !== "—" ? ` (fcst ${e.forecast}, prev ${e.previous})` : "";
+      lines.push(`  • ${e.time} ${e.event}${deltaNote}`);
     }
+    lines.push("");
   }
-  bullets.push("");
-  bullets.push("Overnight bias:");
+
+  lines.push("📈 Overnight bias:");
   for (const o of overnightSummary.slice(0, 6)) {
-    bullets.push(`• ${o.symbol} ${o.sessionBias}${o.regimeSupport ? " ✓" : " ✗"}`);
+    const arrow = o.sessionBias === "bullish" ? "▲" : o.sessionBias === "bearish" ? "▼" : "—";
+    const support = o.regimeSupport ? "✓" : "✗";
+    lines.push(`  • ${o.symbol} ${arrow} ${o.sessionBias} ${support}`);
   }
-  bullets.push("");
-  bullets.push("Liquidity (top 3):");
+  lines.push("");
+
+  lines.push("💧 Liquidity leaders:");
   for (const r of sectorRotation.relativeStrength.slice(0, 3)) {
-    bullets.push(`• ${r.symbol} ${(r.relScore * 100).toFixed(0)}%`);
+    lines.push(`  • ${r.symbol} ${(r.relScore * 100).toFixed(0)}%`);
   }
-  return bullets.join("\n");
+
+  if (crossMarket && crossMarket.regimeBias !== "neutral") {
+    lines.push("");
+    const tilt = crossMarket.regimeBias === "risk_on"
+      ? "Favor long equities · fade long safe-havens (metals)."
+      : "Favor long safe-havens (metals) · fade long equities.";
+    lines.push(`🎯 Playbook tilt: ${tilt}`);
+  }
+
+  return lines.join("\n");
 }
 
 const port = Number(PORT) || 3001;

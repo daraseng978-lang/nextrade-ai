@@ -1,5 +1,6 @@
 import type {
   AccountRiskConfig,
+  CrossMarketSnapshot,
   InstrumentContext,
   PlaybookCandidate,
   SelectedSignal,
@@ -24,6 +25,7 @@ export function decide(
   account: AccountRiskConfig,
   killSwitch = false,
   journal: JournalEntry[] = [],
+  crossMarket: CrossMarketSnapshot | null = null,
 ): SelectedSignal {
   const hardBlock = evaluateHardBlock(ctx, killSwitch);
   const now = new Date().toISOString();
@@ -31,7 +33,7 @@ export function decide(
   // Build candidates from the regime → strategy map.
   const strategyIds = candidatesForRegime(ctx.regime);
   const built: PlaybookCandidate[] = strategyIds
-    .map((id) => buildCandidate(id, ctx, journal))
+    .map((id) => buildCandidate(id, ctx, journal, crossMarket))
     .filter((c): c is PlaybookCandidate => c !== null);
 
   // Sort by raw score descending, then by tighter stop (cheaper probe).

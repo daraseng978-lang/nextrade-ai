@@ -63,6 +63,7 @@ export function DecisionPanel() {
               <ScoreRow label="Capital Lab + journal edge" value={c.scoreBreakdown.edge} />
               <ScoreRow label="Side alignment" value={c.scoreBreakdown.side} />
               <ScoreRow label="Event penalty" value={c.scoreBreakdown.event} />
+              <ScoreRow label="Cross-market (VIX/DXY)" value={c.scoreBreakdown.crossMarket} />
               <tr>
                 <td className="k"><strong>Raw total</strong></td>
                 <td><strong>{c.scoreBreakdown.total.toFixed(2)}</strong></td>
