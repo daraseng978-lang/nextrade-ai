@@ -5,6 +5,7 @@ import { ChartsPage } from "../pages/ChartsPage";
 import { ControlCenterPage } from "../pages/ControlCenterPage";
 import { PineStudioPage } from "../pages/PineStudioPage";
 import { JournalPage } from "../pages/JournalPage";
+import { CapitalLabPage } from "../pages/CapitalLabPage";
 import { SettingsPage } from "../pages/SettingsPage";
 
 export function DesktopLayout() {
@@ -16,6 +17,7 @@ export function DesktopLayout() {
     page === "control_center" ? <ControlCenterPage /> :
     page === "pine_studio" ? <PineStudioPage /> :
     page === "journal" ? <JournalPage /> :
+    page === "capital_lab" ? <CapitalLabPage /> :
     <SettingsPage />;
 
   const activeMeta = PAGES.find((p) => p.id === page)!;

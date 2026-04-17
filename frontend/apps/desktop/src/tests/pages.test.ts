@@ -2,13 +2,14 @@ import { describe, it, expect } from "vitest";
 import { PAGES } from "../engine/pages";
 
 describe("page registry", () => {
-  it("has the six required pages in canonical order", () => {
+  it("has the seven required pages in canonical order", () => {
     expect(PAGES.map((p) => p.id)).toEqual([
       "desk",
       "charts",
       "control_center",
       "pine_studio",
       "journal",
+      "capital_lab",
       "settings",
     ]);
   });

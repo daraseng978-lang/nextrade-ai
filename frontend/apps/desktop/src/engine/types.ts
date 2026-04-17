@@ -264,6 +264,7 @@ export type WorkstationPage =
   | "control_center"
   | "pine_studio"
   | "journal"
+  | "capital_lab"
   | "settings";
 
 export interface PageMeta {
