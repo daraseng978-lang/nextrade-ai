@@ -12,6 +12,15 @@ import type { AlpacaBar, InstrumentContext } from "./types.js";
 import { dispatchTradersPost, redactWebhook, validatePayload } from "./dispatch.js";
 import { sendTelegramMessage } from "./telegram.js";
 import { getEconomicCalendar, type EconomicEvent } from "./calendar.js";
+import {
+  aiConfigured,
+  aiJournalAnalysis,
+  aiMorningBrief,
+  aiTradeReasoning,
+  type JournalAnalysisEntry,
+  type MorningBriefInput,
+  type TradeReasoningInput,
+} from "./ai.js";
 
 dotenv.config();
 
@@ -260,6 +269,7 @@ app.get("/health", (_req, res) => {
     provider,
     feed: alpacaCfg.feed,
     crossMarket: CROSS_MARKET_ENABLED === "true",
+    ai: { configured: aiConfigured(), model: process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001" },
     symbols: SYMBOL_MAPPINGS.map(m =>
       provider === "yahoo" ? `${m.futures.symbol}=${m.yahooSymbol}` : `${m.futures.symbol}/${m.etf}`,
     ),
@@ -410,6 +420,62 @@ app.post("/market/refresh", async (_req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[/market/refresh] failure:", msg);
     res.status(502).json({ ok: false, error: msg });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI endpoints (Claude Haiku 4.5 by default)
+// ---------------------------------------------------------------------------
+
+app.get("/ai/status", (_req, res) => {
+  res.json({ configured: aiConfigured(), model: process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001" });
+});
+
+app.post("/ai/trade-reasoning", async (req, res) => {
+  if (!aiConfigured()) {
+    return res.status(503).json({ ok: false, error: "AI not configured (set ANTHROPIC_API_KEY)" });
+  }
+  try {
+    const body = req.body as TradeReasoningInput;
+    if (!body?.selected?.strategy) return res.status(400).json({ ok: false, error: "body.selected.strategy required" });
+    const commentary = await aiTradeReasoning(body);
+    res.json({ ok: true, commentary });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/ai/trade-reasoning] error:", msg);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+app.post("/ai/journal-analysis", async (req, res) => {
+  if (!aiConfigured()) {
+    return res.status(503).json({ ok: false, error: "AI not configured (set ANTHROPIC_API_KEY)" });
+  }
+  try {
+    const journal = req.body?.journal as JournalAnalysisEntry[] | undefined;
+    if (!Array.isArray(journal)) return res.status(400).json({ ok: false, error: "body.journal must be an array" });
+    const analysis = await aiJournalAnalysis(journal);
+    res.json({ ok: true, analysis });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/ai/journal-analysis] error:", msg);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+app.post("/ai/morning-brief", async (req, res) => {
+  if (!aiConfigured()) {
+    return res.status(503).json({ ok: false, error: "AI not configured (set ANTHROPIC_API_KEY)" });
+  }
+  try {
+    const body = req.body as MorningBriefInput;
+    if (!Array.isArray(body?.contexts)) return res.status(400).json({ ok: false, error: "body.contexts required" });
+    const narrative = await aiMorningBrief(body);
+    res.json({ ok: true, narrative });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/ai/morning-brief] error:", msg);
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 
@@ -566,6 +632,7 @@ app.listen(port, () => {
   console.log(`[alpaca-feed] listening on http://localhost:${port}`);
   console.log(`[alpaca-feed] provider=${provider}${provider === "alpaca" ? ` feed=${alpacaCfg.feed}` : " (Yahoo Finance, ~15min delay)"} symbols=${SYMBOL_MAPPINGS.map(m => m.futures.symbol).join(",")}`);
   console.log(`[alpaca-feed] cross-market (VIX/DXY/10y): ${CROSS_MARKET_ENABLED === "true" ? "ENABLED" : "DISABLED"}`);
+  console.log(`[alpaca-feed] AI (Claude): ${aiConfigured() ? `ENABLED (${process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001"})` : "DISABLED (no ANTHROPIC_API_KEY)"}`);
   if (TRADERSPOST_WEBHOOK_URL) {
     console.log(`[alpaca-feed] tradersPost webhook: ${redactWebhook(TRADERSPOST_WEBHOOK_URL)}`);
   } else {

@@ -9,6 +9,7 @@ import {
   type TradeStatus,
 } from "../engine/journal";
 import { INSTRUMENTS } from "../engine/instruments";
+import { aiJournalAnalysis } from "../engine/ai";
 
 function pointValueFor(symbol: string): number {
   return INSTRUMENTS.find((i) => i.symbol === symbol)?.pointValue ?? 1;
@@ -36,6 +37,8 @@ export function JournalPage() {
     <div className="page-grid journal-grid">
       <main className="column wide">
         <PerformancePanel />
+
+        <AiAnalysisPanel />
 
         <section className="panel">
           <div className="journal-head">
@@ -479,5 +482,72 @@ function KV({ k, v }: { k: string; v: string }) {
       <div className="trade-kv-k">{k}</div>
       <div className="trade-kv-v">{v}</div>
     </div>
+  );
+}
+
+// =================================================================
+// AI Analysis panel — "Analyze my trades" button + result block
+// =================================================================
+
+function AiAnalysisPanel() {
+  const { journal, providerConfig } = useWorkstation();
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const closedCount = useMemo(
+    () => journal.filter(e => e.status === "win" || e.status === "loss" || e.status === "breakeven").length,
+    [journal],
+  );
+
+  const run = async () => {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    const r = await aiJournalAnalysis(providerConfig.restUrl, journal);
+    setLoading(false);
+    if (r.ok && r.data) setResult(r.data.analysis);
+    else setError(r.error ?? "unknown error");
+  };
+
+  return (
+    <section className="panel">
+      <div className="journal-head">
+        <div>
+          <h2>🤖 AI Journal Analysis</h2>
+          <small>
+            Claude reads your closed trades and finds patterns — regime fit,
+            strategy performance, emotional correlation. Runs on Claude Haiku
+            (~$0.01/analysis). {closedCount} closed trade{closedCount === 1 ? "" : "s"} available.
+          </small>
+        </div>
+        <button
+          className="journal-filter-chip active"
+          disabled={loading || closedCount < 5}
+          onClick={run}
+          style={{ fontSize: 14, padding: "8px 16px" }}
+        >
+          {loading ? "Analyzing…" : result ? "Re-analyze" : "Analyze my trades"}
+        </button>
+      </div>
+
+      {closedCount < 5 && !result && (
+        <small style={{ color: "var(--muted)" }}>
+          Need at least 5 closed trades. Log a few more from the Control Center first.
+        </small>
+      )}
+
+      {error && (
+        <div className="journal-empty" style={{ color: "var(--danger)" }}>
+          <small>AI unavailable: {error}</small>
+        </div>
+      )}
+
+      {result && (
+        <pre className="ai-journal-result">
+          {result}
+        </pre>
+      )}
+    </section>
   );
 }
