@@ -485,7 +485,8 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   }, [preMarketBrief, telegramConfig]);
 
   // Telegram trigger 2/4 — new signal selected (only tradeable ones,
-  // skip stand-aside + hard blocks to avoid noise)
+  // skip stand-aside + hard blocks to avoid noise). Dedup by signal ID to
+  // avoid resending when Telegram config toggles on/off.
   useEffect(() => {
     if (!telegramConfig.enabled || !telegramConfig.triggers.signal) return;
     if (selected.hardBlock.active) return;
@@ -494,7 +495,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     tgLastSignalIdRef.current = selected.id;
     dispatchTelegram(formatSignalMessage(selected), telegramConfig)
       .then(setLastTelegramResult);
-  }, [selected.id, telegramConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected, telegramConfig]);
 
   // Telegram trigger 3/4 — approval state transitions
   useEffect(() => {
@@ -510,7 +511,7 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
       dispatchTelegram(formatApprovalMessage(selected, propFirm, "given"), telegramConfig)
         .then(setLastTelegramResult);
     }
-  }, [selected.id, executionState, propFirm.finalContracts, telegramConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected, executionState, propFirm, telegramConfig]);
 
   // Auto Pilot: evaluate guardrails on every selected-signal / state
   // change. When all pass, approve + send in one step and bump the
