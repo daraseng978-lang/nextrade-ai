@@ -44,10 +44,27 @@ let cachedSnapshot: { at: number; contexts: InstrumentContext[] } | null = null;
 
 async function buildContextFor(mapping: SymbolMapping): Promise<InstrumentContext> {
   const [quote, intraday, daily] = await Promise.all([
-    fetchLatestQuote(alpacaCfg, mapping.etf).catch(() => null),
-    fetchIntradayBars(alpacaCfg, mapping.etf, "5Min", 24).catch(() => []),
-    fetchDailyBars(alpacaCfg, mapping.etf, 5).catch(() => []),
+    fetchLatestQuote(alpacaCfg, mapping.etf).catch((err) => {
+      console.warn(`[alpaca] ${mapping.etf} quote failed: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }),
+    fetchIntradayBars(alpacaCfg, mapping.etf, "5Min", 24).catch((err) => {
+      console.warn(`[alpaca] ${mapping.etf} intraday bars failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }),
+    fetchDailyBars(alpacaCfg, mapping.etf, 5).catch((err) => {
+      console.warn(`[alpaca] ${mapping.etf} daily bars failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }),
   ]);
+
+  // Log what we got so we can see when Alpaca returns empty
+  const coverage = `${mapping.etf}: quote=${quote ? "✓" : "✗"} intraday=${intraday.length} daily=${daily.length}`;
+  if (!quote && intraday.length === 0 && daily.length === 0) {
+    console.warn(`[alpaca] ${coverage} — ALL EMPTY`);
+  } else {
+    console.log(`[alpaca] ${coverage}`);
+  }
 
   // ETF-space indicators
   const lastBar = intraday[intraday.length - 1];
