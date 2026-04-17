@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import cron from "node-cron";
 import dotenv from "dotenv";
 import { fetchDailyBars, fetchIntradayBars, fetchLatestQuote, type AlpacaConfig } from "./alpaca.js";
 import { atrFromBars, openingRangeFromBars, priorDayHighLow, spreadFromQuote, vwapFromBars } from "./indicators.js";
@@ -20,6 +21,8 @@ const {
   TRADERSPOST_WEBHOOK_URL = "",
   TELEGRAM_BOT_TOKEN = "",
   TELEGRAM_CHAT_ID = "",
+  MORNING_BRIEF_CRON = "0 30 7 * * 1-5",
+  MORNING_BRIEF_ENABLED = "true",
 } = process.env;
 
 if (!APCA_API_KEY_ID || !APCA_API_SECRET_KEY) {
@@ -176,6 +179,102 @@ app.get("/market/contexts", async (_req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Morning brief builder (simplified backend version)
+// ---------------------------------------------------------------------------
+
+interface OvernightSummary {
+  symbol: string;
+  sessionBias: "bullish" | "bearish" | "neutral";
+  regimeSupport: boolean;
+}
+
+interface SectorRotation {
+  capitalFlow: "risk_on" | "risk_off" | "neutral";
+  relativeStrength: { symbol: string; relScore: number }[];
+}
+
+interface MorningBrief {
+  date: string;
+  overnightSummary: OvernightSummary[];
+  sectorRotation: SectorRotation;
+}
+
+function buildOvernightSummary(ctx: InstrumentContext): OvernightSummary {
+  const { instrument, price, atr, priorHigh, priorLow, regime, regimeConfidence } = ctx;
+  const overnightClose = priorHigh - (priorHigh - priorLow) * 0.6 * 0.35;
+  const gapSize = price - overnightClose;
+  const gapType = gapSize > atr * 0.15 ? "gap_up" : gapSize < -atr * 0.15 ? "gap_down" : "flat";
+
+  const trendUp   = regime === "strong_trend_up";
+  const trendDown = regime === "strong_trend_down";
+  const sessionBias = trendUp ? "bullish" : trendDown ? "bearish" : "neutral";
+
+  const regimeSupport =
+    (sessionBias === "bullish" && trendUp) ||
+    (sessionBias === "bearish" && trendDown) ||
+    (sessionBias === "neutral" && regimeConfidence > 0.5);
+
+  return { symbol: instrument.symbol, sessionBias, regimeSupport };
+}
+
+function buildSectorRotation(contexts: InstrumentContext[]): SectorRotation {
+  const equities = contexts.filter(c => c.instrument.category === "equity_future");
+  const energies  = contexts.filter(c => c.instrument.category === "energy_future");
+  const metals    = contexts.filter(c => c.instrument.category === "metal_future");
+
+  const avgLiqEquities = equities.reduce((s, c) => s + c.liquidityScore, 0) / (equities.length || 1);
+  const avgLiqEnergies  = energies.reduce((s,  c) => s + c.liquidityScore, 0) / (energies.length  || 1);
+  const avgLiqMetals    = metals.reduce(  (s,  c) => s + c.liquidityScore, 0) / (metals.length    || 1);
+
+  const relativeStrength = contexts.map(c => ({
+    symbol: c.instrument.symbol,
+    relScore: parseFloat(c.liquidityScore.toFixed(2)),
+  })).sort((a, b) => b.relScore - a.relScore);
+
+  const leading: string[] = [];
+  const lagging: string[] = [];
+  if (avgLiqEquities > 0.8) leading.push("Equities"); else if (avgLiqEquities < 0.6) lagging.push("Equities");
+  if (avgLiqEnergies > 0.75) leading.push("Energy");  else if (avgLiqEnergies < 0.55) lagging.push("Energy");
+  if (avgLiqMetals   > 0.75) leading.push("Metals");  else if (avgLiqMetals   < 0.55) lagging.push("Metals");
+
+  const avgEventRisk = contexts.reduce((s, c) => s + c.eventRisk, 0) / (contexts.length || 1);
+  const capitalFlow: "risk_on" | "risk_off" | "neutral" =
+    avgEventRisk > 0.5 ? "risk_off" :
+    avgLiqEquities > 0.75 ? "risk_on" :
+    "neutral";
+
+  return { capitalFlow, relativeStrength };
+}
+
+function buildMorningBrief(contexts: InstrumentContext[]): MorningBrief {
+  const now = new Date();
+  return {
+    date: now.toISOString().slice(0, 10),
+    overnightSummary: contexts.map(buildOvernightSummary),
+    sectorRotation: buildSectorRotation(contexts),
+  };
+}
+
+function formatBriefMessage(brief: MorningBrief): string {
+  const { overnightSummary, sectorRotation, date } = brief;
+  const bullets: string[] = [];
+  bullets.push(`📋 Morning Brief · ${date}`);
+  bullets.push("");
+  bullets.push(`Flow: ${sectorRotation.capitalFlow.replace("_", " ")}`);
+  bullets.push("");
+  bullets.push("Overnight bias:");
+  for (const o of overnightSummary.slice(0, 6)) {
+    bullets.push(`• ${o.symbol} ${o.sessionBias}${o.regimeSupport ? " ✓" : " ✗"}`);
+  }
+  bullets.push("");
+  bullets.push("Liquidity (top 3):");
+  for (const r of sectorRotation.relativeStrength.slice(0, 3)) {
+    bullets.push(`• ${r.symbol} ${(r.relScore * 100).toFixed(0)}%`);
+  }
+  return bullets.join("\n");
+}
+
 const port = Number(PORT) || 3001;
 app.listen(port, () => {
   console.log(`[alpaca-feed] listening on http://localhost:${port}`);
@@ -189,5 +288,28 @@ app.listen(port, () => {
     console.log(`[alpaca-feed] telegram notifications: ENABLED (chat ${maskChatId(TELEGRAM_CHAT_ID)})`);
   } else {
     console.log(`[alpaca-feed] telegram notifications: DISABLED (no TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID set)`);
+  }
+
+  // Schedule morning brief (weekdays 7:30am by default, or custom cron expression)
+  if (MORNING_BRIEF_ENABLED === "true" && TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
+    cron.schedule(MORNING_BRIEF_CRON, async () => {
+      try {
+        console.log("[morning-brief] executing scheduled brief...");
+        const contexts = await buildSnapshot();
+        const brief = buildMorningBrief(contexts);
+        const message = formatBriefMessage(brief);
+        const result = await sendTelegramMessage(message, {
+          botToken: TELEGRAM_BOT_TOKEN,
+          chatId: TELEGRAM_CHAT_ID,
+        });
+        console.log(`[morning-brief] ${result.ok ? "sent ✓" : "FAILED"} (${message.length} chars)`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[morning-brief] error:", msg);
+      }
+    });
+    console.log(`[alpaca-feed] morning brief: SCHEDULED (${MORNING_BRIEF_CRON})`);
+  } else if (MORNING_BRIEF_ENABLED === "true") {
+    console.log(`[alpaca-feed] morning brief: DISABLED (no telegram config)`);
   }
 });
