@@ -15,7 +15,8 @@ export interface SymbolMapping {
   etf: string;             // Alpaca symbol to fetch
   multiplier: number;      // futures_price ≈ etf_price * multiplier
   yahooSymbol: string;     // Yahoo Finance symbol (ES=F, NQ=F, …)
-  twelveDataSymbol: string;   // Twelve Data symbol to fetch (futures root or ETF proxy)
+  stooqSymbol: string;     // Stooq.com symbol (ES.F, NQ.F, …) — primary daily-bar source
+  twelveDataSymbol: string;   // Twelve Data symbol — last-resort fallback (ETF proxy for some)
   twelveDataNeedsScale?: boolean; // true when twelveDataSymbol is an ETF — scale bars by multiplier before caching
 }
 
@@ -29,6 +30,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "SPY",
     multiplier: 10.0, // SPY ≈ S&P / 10; MES tracks S&P × 1
     yahooSymbol: "ES=F",
+    stooqSymbol: "ES.F",
     twelveDataSymbol: "ES",
   },
   {
@@ -40,6 +42,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "QQQ",
     multiplier: 41.1, // QQQ ≈ Nasdaq / 41.1 (recalibrated 2026-04-17)
     yahooSymbol: "NQ=F",
+    stooqSymbol: "NQ.F",
     twelveDataSymbol: "QQQ", twelveDataNeedsScale: true,
   },
   {
@@ -51,6 +54,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "DIA",
     multiplier: 100.0, // DIA ≈ Dow / 100
     yahooSymbol: "YM=F",
+    stooqSymbol: "YM.F",
     twelveDataSymbol: "DIA", twelveDataNeedsScale: true,
   },
   {
@@ -62,6 +66,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "IWM",
     multiplier: 10.0,
     yahooSymbol: "RTY=F",
+    stooqSymbol: "RTY.F",
     twelveDataSymbol: "IWM", twelveDataNeedsScale: true,
   },
   {
@@ -73,6 +78,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "USO",
     multiplier: 0.85, // USO tracks WTI but with contango decay; tune as needed
     yahooSymbol: "CL=F",
+    stooqSymbol: "CL.F",
     twelveDataSymbol: "CL",
   },
   {
@@ -84,6 +90,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
     etf: "GLD",
     multiplier: 11.0, // GLD ≈ gold_price / 10 per share; small tracking offset
     yahooSymbol: "GC=F",
+    stooqSymbol: "GC.F",
     twelveDataSymbol: "GC",
   },
 ];

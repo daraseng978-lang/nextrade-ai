@@ -4,6 +4,7 @@ import cron from "node-cron";
 import dotenv from "dotenv";
 import { fetchDailyBars, fetchIntradayBars, fetchLatestQuote, type AlpacaConfig } from "./alpaca.js";
 import { fetchYahooBundle, fetchYahooDailyBars } from "./yahoo.js";
+import { fetchStooqDailyBars } from "./stooq.js";
 import { fetchTwelveDataDailyBars } from "./twelveData.js";
 import { fetchCrossMarketSnapshot, type CrossMarketSnapshot } from "./crossMarket.js";
 import {
@@ -315,29 +316,45 @@ async function buildYahooContextFor(mapping: SymbolMapping): Promise<InstrumentC
   };
 }
 
-// Pull Yahoo daily bars for each mapped symbol once and stash in
-// `yahooDailyCache`. Used by hybrid mode (provider=alpaca) to fill in
-// the priorHigh/priorLow that IEX daily bars are too sparse to provide.
+// Refresh daily bars for each mapped symbol and stash in yahooDailyCache.
+// Provides priorHigh/priorLow that Alpaca IEX daily bars are too sparse for.
 // Fallback chain per symbol:
-//   1. Yahoo Finance (keyless, but flakey under rate-limit)
-//   2. Twelve Data (needs TWELVEDATA_API_KEY, 800 req/day free tier)
-// Cache is keyed by yahoo symbol so the lookup in buildContextFor is
-// unchanged regardless of which provider actually filled it.
-async function refreshYahooDailies(): Promise<void> {
+//   1. Stooq   — free, keyless, native futures prices for all 6 symbols
+//   2. Yahoo   — free, keyless, flakey under rate-limit
+//   3. Twelve Data — free tier, ETF proxy for NQ/YM/RTY/GC
+async function refreshHybridDailies(): Promise<void> {
   console.log("[hybrid-daily] refreshing daily bars for all symbols...");
-  let yahoo = 0, twelve = 0, fail = 0;
+  let stooq = 0, yahoo = 0, twelve = 0, fail = 0;
   for (const mapping of SYMBOL_MAPPINGS) {
     let filled = false;
+
+    // 1. Stooq
     try {
-      const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
+      const bars = await fetchStooqDailyBars(mapping.stooqSymbol);
       if (bars.length >= 2) {
         yahooDailyCache.set(mapping.yahooSymbol, bars);
-        yahoo++;
+        stooq++;
         filled = true;
       }
     } catch (err) {
-      console.warn(`[hybrid-daily] ${mapping.yahooSymbol} Yahoo failed: ${err instanceof Error ? err.message : err}`);
+      console.warn(`[hybrid-daily] ${mapping.stooqSymbol} Stooq failed: ${err instanceof Error ? err.message : err}`);
     }
+
+    // 2. Yahoo Finance
+    if (!filled) {
+      try {
+        const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
+        if (bars.length >= 2) {
+          yahooDailyCache.set(mapping.yahooSymbol, bars);
+          yahoo++;
+          filled = true;
+        }
+      } catch (err) {
+        console.warn(`[hybrid-daily] ${mapping.yahooSymbol} Yahoo failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    // 3. Twelve Data (ETF proxy for NQ/YM/RTY/GC)
     if (!filled && TWELVEDATA_API_KEY) {
       try {
         let bars = await fetchTwelveDataDailyBars(mapping.twelveDataSymbol, TWELVEDATA_API_KEY);
@@ -354,27 +371,37 @@ async function refreshYahooDailies(): Promise<void> {
         console.warn(`[hybrid-daily] ${mapping.twelveDataSymbol} Twelve Data failed: ${err instanceof Error ? err.message : err}`);
       }
     }
+
     if (!filled) fail++;
   }
   yahooDailyLastRefresh = Date.now();
-  console.log(`[hybrid-daily] done — yahoo=${yahoo}, twelvedata=${twelve}, failed=${fail}`);
+  console.log(`[hybrid-daily] done — stooq=${stooq}, yahoo=${yahoo}, twelvedata=${twelve}, failed=${fail}`);
   await calibrateMultipliers().catch(err =>
     console.warn("[calibrate] error:", err instanceof Error ? err.message : err),
   );
 }
 
 async function calibrateMultipliers(): Promise<void> {
-  // Only calibrate from Yahoo Finance — it provides verified futures prices.
-  // Twelve Data cache bars can resolve to wrong instruments (e.g. the "ES"
-  // symbol may not be E-mini S&P 500), so they are not safe for calibration.
-  // If Yahoo is rate-limited the map stays empty and mapping.multiplier is used.
+  // Calibrate from Stooq (primary) or Yahoo (fallback) — both return real
+  // futures prices so the ratio is accurate. Twelve Data is excluded because
+  // some of its "ES"/"CL" resolutions are wrong instruments.
   const results: string[] = [];
   for (const mapping of SYMBOL_MAPPINGS) {
     let futuresClose: number | null = null;
+
+    // Try Stooq first — free, keyless, reliable futures prices
     try {
-      const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
+      const bars = await fetchStooqDailyBars(mapping.stooqSymbol);
       if (bars.length > 0) futuresClose = bars[bars.length - 1].c;
-    } catch { /* Yahoo rate-limited — skip, keep static multiplier */ }
+    } catch { /* fall through to Yahoo */ }
+
+    // Fall back to Yahoo Finance
+    if (futuresClose === null) {
+      try {
+        const bars = await fetchYahooDailyBars(mapping.yahooSymbol);
+        if (bars.length > 0) futuresClose = bars[bars.length - 1].c;
+      } catch { /* leave null — keep static multiplier */ }
+    }
 
     if (!futuresClose || futuresClose <= 0) continue;
 
@@ -780,7 +807,7 @@ app.listen(port, () => {
   console.log(`[alpaca-feed] listening on http://localhost:${port}`);
   console.log(`[alpaca-feed] provider=${provider}${provider === "alpaca" ? ` feed=${alpacaCfg.feed}` : " (Yahoo Finance, ~15min delay)"} symbols=${SYMBOL_MAPPINGS.map(m => m.futures.symbol).join(",")}`);
   console.log(`[alpaca-feed] cross-market (VIX/DXY/10y): ${CROSS_MARKET_ENABLED === "true" ? "ENABLED" : "DISABLED"}`);
-  console.log(`[alpaca-feed] Twelve Data fallback: ${TWELVEDATA_API_KEY ? "ENABLED" : "DISABLED (no TWELVEDATA_API_KEY)"}`);
+  console.log(`[alpaca-feed] daily bars: Stooq (primary) → Yahoo → Twelve Data ${TWELVEDATA_API_KEY ? "(ENABLED)" : "(DISABLED — no TWELVEDATA_API_KEY)"}`);
   console.log(`[alpaca-feed] AI (Claude): ${aiConfigured() ? `ENABLED (${process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001"})` : "DISABLED (no ANTHROPIC_API_KEY)"}`);
   if (TRADERSPOST_WEBHOOK_URL) {
     console.log(`[alpaca-feed] tradersPost webhook: ${redactWebhook(TRADERSPOST_WEBHOOK_URL)}`);
@@ -858,24 +885,23 @@ app.listen(port, () => {
     }, 5000);
   }
 
-  // Hybrid mode — Alpaca quotes/intraday + one Yahoo daily-bar pull per
-  // trading day to get real consolidated priorHigh/priorLow. One hit
-  // per symbol per day is well under Yahoo's rate limit.
+  // Hybrid mode — Alpaca quotes/intraday + daily-bar refresh for real
+  // consolidated priorHigh/priorLow. Primary source is Stooq (free, keyless).
   if (provider === "alpaca" && HYBRID_YAHOO_DAILIES === "true") {
     cron.schedule(HYBRID_YAHOO_DAILIES_CRON, () => {
-      refreshYahooDailies().catch((err) => {
+      refreshHybridDailies().catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("[hybrid-yahoo-daily] cron error:", msg);
+        console.error("[hybrid-daily] cron error:", msg);
       });
     });
-    console.log(`[alpaca-feed] hybrid yahoo dailies: SCHEDULED (${HYBRID_YAHOO_DAILIES_CRON})`);
+    console.log(`[alpaca-feed] hybrid dailies: SCHEDULED (${HYBRID_YAHOO_DAILIES_CRON})`);
 
     // Initial pull 3s after startup so priorHigh/priorLow are correct
     // on the first /market/contexts request.
     setTimeout(() => {
-      refreshYahooDailies().catch((err) => {
+      refreshHybridDailies().catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("[hybrid-yahoo-daily] initial pull error:", msg);
+        console.error("[hybrid-daily] initial pull error:", msg);
       });
     }, 3000);
   }
