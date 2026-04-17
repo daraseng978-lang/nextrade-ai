@@ -19,7 +19,7 @@ const DATA_TIMEOUT_MS = 20_000;
 export const IBKR_CONTRACTS: Record<string, Contract> = {
   "ES.F": { symbol: "ES",  secType: SecType.CONTFUT, exchange: "CME",   currency: "USD" },
   "NQ.F": { symbol: "NQ",  secType: SecType.CONTFUT, exchange: "CME",   currency: "USD" },
-  "YM.F": { symbol: "YM",  secType: SecType.CONTFUT, exchange: "ECBOT", currency: "USD" },
+  "YM.F": { symbol: "YM",  secType: SecType.CONTFUT, exchange: "CBOT",  currency: "USD" },
   "RTY.F":{ symbol: "RTY", secType: SecType.CONTFUT, exchange: "CME",   currency: "USD" },
   "CL.F": { symbol: "CL",  secType: SecType.CONTFUT, exchange: "NYMEX", currency: "USD" },
   "GC.F": { symbol: "GC",  secType: SecType.CONTFUT, exchange: "COMEX", currency: "USD" },
