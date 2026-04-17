@@ -76,6 +76,17 @@ export interface StrategyMeta {
   edge: StrategyEdge;
 }
 
+export interface ScoreBreakdown {
+  regime: number;      // regime fit contribution
+  confidence: number;  // regime confidence contribution
+  liquidity: number;   // liquidity contribution
+  edge: number;        // Capital Lab + journal blended edge contribution
+  side: number;        // side alignment contribution
+  event: number;       // event-risk penalty (negative)
+  total: number;       // clamped to [0..1]
+  realizedN: number;   // number of closed journal trades feeding the edge
+}
+
 export interface PlaybookCandidate {
   strategy: StrategyId;
   instrument: Instrument;
@@ -90,6 +101,7 @@ export interface PlaybookCandidate {
   rMultiple: number;
   rawScore: number;       // 0..1
   reasons: string[];
+  scoreBreakdown?: ScoreBreakdown;
 }
 
 export interface ValidationProfile {

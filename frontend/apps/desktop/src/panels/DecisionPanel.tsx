@@ -47,6 +47,31 @@ export function DecisionPanel() {
         </ul>
       </div>
 
+      {c.scoreBreakdown && (
+        <div className="reason-list">
+          <strong>
+            Score breakdown{" "}
+            {c.scoreBreakdown.realizedN > 0
+              ? `· ${c.scoreBreakdown.realizedN} live trade${c.scoreBreakdown.realizedN === 1 ? "" : "s"} in blend`
+              : "· no live trades yet (Capital Lab preset only)"}
+          </strong>
+          <table className="kv" style={{ marginTop: 6 }}>
+            <tbody>
+              <ScoreRow label="Regime fit" value={c.scoreBreakdown.regime} />
+              <ScoreRow label="Regime confidence" value={c.scoreBreakdown.confidence} />
+              <ScoreRow label="Liquidity" value={c.scoreBreakdown.liquidity} />
+              <ScoreRow label="Capital Lab + journal edge" value={c.scoreBreakdown.edge} />
+              <ScoreRow label="Side alignment" value={c.scoreBreakdown.side} />
+              <ScoreRow label="Event penalty" value={c.scoreBreakdown.event} />
+              <tr>
+                <td className="k"><strong>Raw total</strong></td>
+                <td><strong>{c.scoreBreakdown.total.toFixed(2)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="runner-ups">
         <strong>Runner-ups</strong>
         {selected.runnerUps.length === 0 ? (
@@ -81,5 +106,15 @@ function Cell({ label, value }: { label: string; value: string }) {
       <div className="lbl">{label}</div>
       <div className="val">{value}</div>
     </div>
+  );
+}
+
+function ScoreRow({ label, value }: { label: string; value: number }) {
+  const sign = value >= 0 ? "+" : "";
+  return (
+    <tr>
+      <td className="k">{label}</td>
+      <td>{sign}{value.toFixed(3)}</td>
+    </tr>
   );
 }
