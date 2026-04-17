@@ -33,6 +33,11 @@ export function ControlCenterPage() {
     contexts,
     account,
     preMarketBrief,
+    autoPilot,
+    setAutoPilot,
+    autoTradeCount,
+    autoPilotMinScore,
+    lastAutoPilotDecision,
   } = useWorkstation();
 
   const sym = selected.candidate.instrument.symbol;
@@ -75,6 +80,11 @@ export function ControlCenterPage() {
         </RailCell>
         <RailCell label="Quorum" tone={quorumEnabled ? "on" : "off"}>
           {quorumEnabled ? "ON" : "OFF"}
+        </RailCell>
+        <RailCell label="Auto Pilot" tone={autoPilot ? "on" : "off"}>
+          {autoPilot
+            ? `ARMED · ${autoTradeCount}/${preMarketBrief.mentalReadiness.suggestedMaxTrades}`
+            : "OFF"}
         </RailCell>
         <RailCell label="Prop-Firm State" tone={propFirmTone(propFirm)}>
           {entryStateLabel(propFirm.entryState).toUpperCase()}
@@ -197,6 +207,29 @@ export function ControlCenterPage() {
             </div>
             <div className="cc-v2-pagehead-actions">
               <button
+                className={`cc-ghost-btn autopilot ${autoPilot ? "armed" : ""}`}
+                onClick={() => {
+                  if (!autoPilot) {
+                    const ok = confirm(
+                      `Arm Auto Pilot?\n\n` +
+                      `The system will approve + send trades automatically when:\n` +
+                      `  · adjusted score ≥ ${autoPilotMinScore.toFixed(2)}\n` +
+                      `  · kill switch is off\n` +
+                      `  · no hard block\n` +
+                      `  · prop-firm compliance is passing\n` +
+                      `  · Reggie readiness ≠ stand aside\n` +
+                      `  · daily auto-trade count < ${preMarketBrief.mentalReadiness.suggestedMaxTrades}\n\n` +
+                      `You can disarm at any time.`,
+                    );
+                    if (!ok) return;
+                  }
+                  setAutoPilot(!autoPilot);
+                }}
+                title={autoPilot ? "Disarm Auto Pilot" : "Arm Auto Pilot"}
+              >
+                {autoPilot ? "🤖 AUTO PILOT ARMED" : "🤖 ARM AUTO PILOT"}
+              </button>
+              <button
                 className={`cc-ghost-btn ${killSwitch ? "armed" : "danger"}`}
                 onClick={() => setKillSwitch(!killSwitch)}
               >
@@ -204,6 +237,28 @@ export function ControlCenterPage() {
               </button>
             </div>
           </div>
+
+          {autoPilot && (
+            <div className="cc-autopilot-strip">
+              <span className="cc-autopilot-dot" />
+              <span className="cc-autopilot-label">AUTO PILOT ARMED</span>
+              <span className="cc-autopilot-meta">
+                Score floor {autoPilotMinScore.toFixed(2)} · {autoTradeCount}/{preMarketBrief.mentalReadiness.suggestedMaxTrades} sent today
+              </span>
+              {lastAutoPilotDecision?.action === "skip" &&
+                !["autopilot_off", "already_processed", "not_draft"].includes(lastAutoPilotDecision.reasonCode) && (
+                  <span className="cc-autopilot-reason">
+                    Holding · {lastAutoPilotDecision.reason}
+                  </span>
+                )}
+              <button
+                className="cc-autopilot-disarm"
+                onClick={() => setAutoPilot(false)}
+              >
+                Disarm
+              </button>
+            </div>
+          )}
 
           <div className={`cc-state-banner ${banner.tone}`}>
             <div className={`cc-state-badge ${banner.tone}`}>
@@ -922,6 +977,42 @@ function eventCategory(kind: EventKind): {
         stream: "sys",
         label: "CHART_RETRY",
         tag: "SYS",
+      };
+    case "auto_pilot_armed":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "gate",
+        stream: "gate",
+        label: "AUTOPILOT_ARM",
+        tag: "AP",
+      };
+    case "auto_pilot_disarmed":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "gate",
+        stream: "gate",
+        label: "AUTOPILOT_DISARM",
+        tag: "AP",
+      };
+    case "auto_pilot_skipped":
+      return {
+        actor: "sys",
+        actorLabel: "System",
+        evt: "warn",
+        stream: "sys",
+        label: "AUTOPILOT_SKIP",
+        tag: "AP",
+      };
+    case "auto_pilot_executed":
+      return {
+        actor: "sys",
+        actorLabel: "System",
+        evt: "gate",
+        stream: "ok",
+        label: "AUTOPILOT_EXEC",
+        tag: "AP",
       };
   }
 }

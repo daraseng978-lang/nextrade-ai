@@ -284,7 +284,11 @@ export type EventKind =
   | "quorum_toggled"
   | "hard_block_triggered"
   | "chart_unavailable"
-  | "chart_retried";
+  | "chart_retried"
+  | "auto_pilot_armed"
+  | "auto_pilot_disarmed"
+  | "auto_pilot_skipped"
+  | "auto_pilot_executed";
 
 export interface EventEntry {
   id: string;

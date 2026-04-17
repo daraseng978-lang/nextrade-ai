@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from "react";
@@ -31,6 +32,11 @@ import {
 } from "../engine/preMarketChecklist";
 import { STRATEGIES } from "../engine/strategies";
 import type { JournalEntry } from "../engine/journal";
+import {
+  evaluateAutoPilot,
+  AUTOPILOT_MIN_SCORE_DEFAULT,
+  type AutoPilotDecision,
+} from "../engine/autoPilot";
 
 export type { JournalEntry } from "../engine/journal";
 
@@ -81,6 +87,15 @@ interface WorkstationState {
   events: EventEntry[];
   pushEvent: (entry: Omit<EventEntry, "id" | "timestamp">) => void;
   preMarketBrief: PreMarketBrief;
+
+  // Auto Pilot — system takes the approve + send steps automatically
+  // when every guardrail passes. See engine/autoPilot.ts.
+  autoPilot: boolean;
+  setAutoPilot: (v: boolean) => void;
+  autoTradeCount: number;
+  autoPilotMinScore: number;
+  setAutoPilotMinScore: (v: number) => void;
+  lastAutoPilotDecision: AutoPilotDecision | null;
 }
 
 const JOURNAL_STORAGE_KEY = "nextrade.journal.v1";
@@ -135,6 +150,12 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
 
   const [executionState, setExecutionState] = useState<ExecutionState>("draft");
   const [events, setEvents] = useState<EventEntry[]>([]);
+
+  const [autoPilot, setAutoPilotRaw] = useState(false);
+  const [autoTradeCount, setAutoTradeCount] = useState(0);
+  const [autoPilotMinScore, setAutoPilotMinScore] = useState(AUTOPILOT_MIN_SCORE_DEFAULT);
+  const [lastAutoPilotDecision, setLastAutoPilotDecision] = useState<AutoPilotDecision | null>(null);
+  const lastProcessedSignalIdRef = useRef<string | null>(null);
 
   const signals = useMemo(() => {
     const out: Record<string, SelectedSignal> = {};
@@ -194,14 +215,34 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     [pushEvent],
   );
 
+  const setAutoPilot = useCallback(
+    (v: boolean) => {
+      setAutoPilotRaw(v);
+      if (!v) {
+        setAutoTradeCount(0);
+        lastProcessedSignalIdRef.current = null;
+        setLastAutoPilotDecision(null);
+      }
+      pushEvent({
+        kind: v ? "auto_pilot_armed" : "auto_pilot_disarmed",
+        detail: v
+          ? `Auto Pilot armed · score floor ${autoPilotMinScore.toFixed(2)} · respects readiness & kill switch.`
+          : "Auto Pilot disarmed — manual approval required.",
+      });
+    },
+    [pushEvent, autoPilotMinScore],
+  );
+
   // Auto-arm kill switch when Reggie's mental readiness says stand_aside.
-  // Only fires when kill switch is currently off — prevents false disarm later.
+  // Also force-disarms Auto Pilot — we don't want the system routing on a
+  // day Reggie flagged as "do not trade". One-way only (never auto-disarms).
   useEffect(() => {
     if (
       preMarketBrief.mentalReadiness.sessionReadiness === "stand_aside" &&
       !killSwitch
     ) {
       setKillSwitch(true);
+      if (autoPilot) setAutoPilot(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preMarketBrief.mentalReadiness.sessionReadiness]);
@@ -238,6 +279,99 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
       ),
     [selected, account, executionState],
   );
+
+  // Auto Pilot: evaluate guardrails on every selected-signal / state
+  // change. When all pass, approve + send in one step and bump the
+  // daily counter. Skipped evaluations log an event so the trader sees
+  // WHY auto pilot didn't act.
+  useEffect(() => {
+    if (!autoPilot) return;
+    const decision = evaluateAutoPilot({
+      autoPilot,
+      killSwitch,
+      signal: selected,
+      propFirm,
+      executionState,
+      brief: preMarketBrief,
+      autoTradeCount,
+      lastProcessedSignalId: lastProcessedSignalIdRef.current,
+      minAdjustedScore: autoPilotMinScore,
+    });
+    setLastAutoPilotDecision(decision);
+
+    if (decision.action === "skip") {
+      // Don't spam the audit trail for the boring reasons (already
+      // processed / autopilot_off / not_draft). Only log skips that
+      // represent a guardrail-triggered hold.
+      const noisySkips: typeof decision.reasonCode[] = ["already_processed", "autopilot_off", "not_draft"];
+      if (!noisySkips.includes(decision.reasonCode)) {
+        pushEvent({
+          kind: "auto_pilot_skipped",
+          symbol: selected.candidate.instrument.symbol,
+          detail: decision.reason,
+        });
+      }
+      return;
+    }
+
+    // approve_and_send path — stamp signal id before firing so the
+    // effect doesn't re-run this path when state transitions
+    // (executionState: draft -> approved -> sent).
+    lastProcessedSignalIdRef.current = selected.id;
+
+    const reduced = selected.adjustedScore < 0.58;
+    setExecutionState("sent");
+    setAutoTradeCount((n) => n + 1);
+
+    const c = selected.candidate;
+    const inst = c.instrument;
+    const newEntry: JournalEntry = {
+      id: selected.id,
+      timestamp: new Date().toISOString(),
+      symbol: inst.symbol,
+      side: c.side,
+      contracts: selected.sizing.finalContracts,
+      entryPrice: c.entry,
+      stopPrice: c.stop,
+      tp1Price: c.tp1,
+      tp2Price: c.tp2,
+      stopDistance: c.stopDistance,
+      rMultiple: c.rMultiple,
+      perContractRisk: selected.sizing.perContractRisk,
+      accountRiskDollars: selected.sizing.accountRiskDollars,
+      notionalDollars: selected.sizing.finalContracts * inst.pointValue * c.entry,
+      strategy: c.strategy,
+      strategyLabel: STRATEGIES[c.strategy].label,
+      regime: selected.context.regime,
+      regimeConfidence: selected.context.regimeConfidence,
+      rawScore: c.rawScore,
+      adjustedScore: selected.adjustedScore,
+      playbookReasons: c.reasons,
+      state: reduced ? "reduced_approved" : "approved",
+      status: "open",
+      notes: `Auto-piloted · ${decision.reason}`,
+    };
+    setJournal((prev) => [newEntry, ...prev].slice(0, 500));
+
+    pushEvent({
+      kind: "auto_pilot_executed",
+      symbol: inst.symbol,
+      detail: `Auto Pilot routed ${c.side.toUpperCase()} ${inst.symbol} · ${selected.sizing.finalContracts} ct · adj ${selected.adjustedScore.toFixed(2)} (${autoTradeCount + 1}/${preMarketBrief.mentalReadiness.suggestedMaxTrades}).`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    autoPilot,
+    killSwitch,
+    selected.id,
+    selected.hardBlock.active,
+    selected.sizing.finalContracts,
+    selected.adjustedScore,
+    propFirm.compliance.passing,
+    executionState,
+    preMarketBrief.mentalReadiness.sessionReadiness,
+    preMarketBrief.mentalReadiness.suggestedMaxTrades,
+    autoPilotMinScore,
+  ]);
 
   const approve = useCallback(() => {
     if (executionState !== "draft") return;
@@ -370,6 +504,12 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     events,
     pushEvent,
     preMarketBrief,
+    autoPilot,
+    setAutoPilot,
+    autoTradeCount,
+    autoPilotMinScore,
+    setAutoPilotMinScore,
+    lastAutoPilotDecision,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
