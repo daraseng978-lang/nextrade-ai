@@ -392,7 +392,45 @@ table.kv td.k { color: var(--muted); width: 46%; }
 }
 .charts-grid { grid-template-columns: 320px 1fr; }
 .journal-grid { grid-template-columns: 1fr; }
+.capital-lab-grid { grid-template-columns: 320px 1fr; }
 .column.wide { overflow-y: auto; padding: 0; background: var(--bg-0); }
+
+/* ---------- Capital Lab ---------- */
+.readiness-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+.readiness-hero.ok { border-color: var(--good); }
+.readiness-hero.wait { border-color: var(--warn); }
+.readiness-hero.bad { border-color: var(--danger); }
+.readiness-label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.readiness-hero.ok .readiness-label { color: var(--good); }
+.readiness-hero.wait .readiness-label { color: var(--warn); }
+.readiness-hero.bad .readiness-label { color: var(--danger); }
+.readiness-sub { color: var(--muted); margin-top: 4px; }
+.readiness-metric { text-align: right; }
+.metric-big {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text);
+}
+.metric-small {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 
 /* ---------- Approval / Route / Chart fallback rows ---------- */
 .approval-row {
