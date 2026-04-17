@@ -3,6 +3,8 @@ import { useWorkstation } from "../state/WorkstationContext";
 import { STRATEGIES } from "../engine/strategies";
 import { aiTradeReasoning } from "../engine/ai";
 
+const AI_COOLDOWN_MS = 5 * 60 * 1000; // don't re-call Claude within 5 min per symbol
+
 interface AiCacheEntry { key: string; text: string; at: number; }
 
 export function DecisionPanel() {
@@ -32,10 +34,11 @@ export function DecisionPanel() {
     }
 
     const cached = aiCache.current[symbol];
-    // Same stable setup for this symbol — reuse the cached analysis,
-    // don't re-call Claude. Swapping to a different symbol still shows
-    // that symbol's cached text (if any).
-    if (cached && cached.key === stableKey) {
+    // Reuse if: same setup key, OR called within the cooldown window.
+    // The cooldown prevents re-calling Claude every minute when regime
+    // hysteresis keeps flipping the stableKey between polls.
+    const fresh = cached && Date.now() - cached.at < AI_COOLDOWN_MS;
+    if (cached && (cached.key === stableKey || fresh)) {
       setAiText(cached.text);
       setAiErr(null);
       setAiLoading(false);

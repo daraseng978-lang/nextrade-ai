@@ -28,7 +28,7 @@ const PROXY_SYMBOL_MAP: Record<string, { symbol: string; proxyLabel: string }> =
   MES: { symbol: "CAPITALCOM:US500", proxyLabel: "S&P 500 CFD (US500) — matches MES price scale" },
   MNQ: { symbol: "CAPITALCOM:US100", proxyLabel: "Nasdaq 100 CFD (US100) — matches MNQ price scale" },
   MYM: { symbol: "CAPITALCOM:US30", proxyLabel: "Dow Jones CFD (US30) — matches MYM price scale" },
-  M2K: { symbol: "TVC:RUT", proxyLabel: "Russell 2000 Index (RUT) — matches M2K price scale" },
+  M2K: { symbol: "FOREXCOM:US2000", proxyLabel: "Russell 2000 CFD (US2000) — matches M2K price scale" },
   MCL: { symbol: "TVC:USOIL", proxyLabel: "WTI Crude CFD (USOIL) — matches MCL price scale" },
   MGC: { symbol: "OANDA:XAUUSD", proxyLabel: "Gold spot (XAU/USD) — matches MGC price scale" },
 };
@@ -62,7 +62,7 @@ const ALTERNATES: Record<string, string[]> = {
   MES: ["CAPITALCOM:US500", "FX_IDC:SPXUSD", "TVC:SPX", "AMEX:SPY"],
   MNQ: ["CAPITALCOM:US100", "FX_IDC:NDXUSD", "TVC:NDX", "NASDAQ:QQQ"],
   MYM: ["CAPITALCOM:US30", "TVC:DJI", "AMEX:DIA"],
-  M2K: ["CAPITALCOM:US2000", "TVC:RUT", "TVC:RUT2000", "AMEX:IWM"],
+  M2K: ["TVC:RUT", "CAPITALCOM:US2000", "BLACKBULL:US2000", "AMEX:IWM"],
   MCL: ["TVC:USOIL", "CAPITALCOM:OIL_CRUDE", "AMEX:USO", "NYMEX:CL1!"],
   MGC: ["OANDA:XAUUSD", "TVC:GOLD", "CAPITALCOM:GOLD", "AMEX:GLD", "COMEX:GC1!"],
 };
