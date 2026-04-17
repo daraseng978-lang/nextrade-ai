@@ -29,6 +29,10 @@ import {
   enrichContextsWithBrief,
   type PreMarketBrief,
 } from "../engine/preMarketChecklist";
+import { STRATEGIES } from "../engine/strategies";
+import type { JournalEntry } from "../engine/journal";
+
+export type { JournalEntry } from "../engine/journal";
 
 export type ChartViewMode = "quad" | "focus";
 
@@ -47,6 +51,8 @@ interface WorkstationState {
 
   journal: JournalEntry[];
   logExecution: (entry: JournalEntry) => void;
+  updateJournalEntry: (id: string, patch: Partial<JournalEntry>) => void;
+  deleteJournalEntry: (id: string) => void;
 
   page: WorkstationPage;
   setPage: (p: WorkstationPage) => void;
@@ -77,18 +83,23 @@ interface WorkstationState {
   preMarketBrief: PreMarketBrief;
 }
 
-export interface JournalEntry {
-  id: string;
-  timestamp: string;
-  symbol: string;
-  strategy: string;
-  regime: string;
-  side: string;
-  contracts: number;
-  adjustedScore: number;
-  state: string;
-  outcomeR?: number;
-  notes?: string;
+const JOURNAL_STORAGE_KEY = "nextrade.journal.v1";
+
+function loadPersistedJournal(): JournalEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(JOURNAL_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function persistJournal(journal: JournalEntry[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(journal));
+  } catch { /* quota or private mode — ignore */ }
 }
 
 const Ctx = createContext<WorkstationState | null>(null);
@@ -110,7 +121,10 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const [account, setAccount] = useState(DEFAULT_ACCOUNT);
   const [killSwitch, setKillSwitchRaw] = useState(false);
   const [quorumEnabled, setQuorumEnabledRaw] = useState(false);
-  const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [journal, setJournal] = useState<JournalEntry[]>(loadPersistedJournal);
+
+  // Persist journal changes to localStorage whenever it changes
+  useEffect(() => { persistJournal(journal); }, [journal]);
 
   const [page, setPage] = useState<WorkstationPage>("desk");
   const [chartViewMode, setChartViewMode] = useState<ChartViewMode>("quad");
@@ -240,28 +254,54 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
   const send = useCallback(() => {
     if (executionState !== "approved" && executionState !== "reduced_approved") return;
     setExecutionState("sent");
-    setJournal((prev) =>
-      [
-        {
-          id: selected.id,
-          timestamp: new Date().toISOString(),
-          symbol: selected.candidate.instrument.symbol,
-          strategy: selected.candidate.strategy,
-          regime: selected.context.regime,
-          side: selected.candidate.side,
-          contracts: selected.sizing.finalContracts,
-          adjustedScore: selected.adjustedScore,
-          state: executionState,
-        },
-        ...prev,
-      ].slice(0, 200),
-    );
+    const c = selected.candidate;
+    const inst = c.instrument;
+    const newEntry: JournalEntry = {
+      id: selected.id,
+      timestamp: new Date().toISOString(),
+
+      // quantitative
+      symbol: inst.symbol,
+      side: c.side,
+      contracts: selected.sizing.finalContracts,
+      entryPrice: c.entry,
+      stopPrice: c.stop,
+      tp1Price: c.tp1,
+      tp2Price: c.tp2,
+      stopDistance: c.stopDistance,
+      rMultiple: c.rMultiple,
+      perContractRisk: selected.sizing.perContractRisk,
+      accountRiskDollars: selected.sizing.accountRiskDollars,
+      notionalDollars: selected.sizing.finalContracts * inst.pointValue * c.entry,
+
+      // strategy & rationale
+      strategy: c.strategy,
+      strategyLabel: STRATEGIES[c.strategy].label,
+      regime: selected.context.regime,
+      regimeConfidence: selected.context.regimeConfidence,
+      rawScore: c.rawScore,
+      adjustedScore: selected.adjustedScore,
+      playbookReasons: c.reasons,
+      state: executionState,
+
+      // outcome placeholders — filled in after close
+      status: "open",
+    };
+    setJournal((prev) => [newEntry, ...prev].slice(0, 500));
     pushEvent({
       kind: "sent",
       symbol: selected.candidate.instrument.symbol,
       detail: `Sent to TradersPost · ${selected.sizing.finalContracts} ctx.`,
     });
   }, [executionState, selected, pushEvent]);
+
+  const updateJournalEntry = useCallback((id: string, patch: Partial<JournalEntry>) => {
+    setJournal((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  }, []);
+
+  const deleteJournalEntry = useCallback((id: string) => {
+    setJournal((prev) => prev.filter((e) => e.id !== id));
+  }, []);
 
   const resetWorkflow = useCallback(() => {
     if (selected.hardBlock.active) setExecutionState("blocked");
@@ -305,7 +345,9 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
     setQuorumEnabled,
     setAccount,
     journal,
-    logExecution: (entry) => setJournal((prev) => [entry, ...prev].slice(0, 200)),
+    logExecution: (entry) => setJournal((prev) => [entry, ...prev].slice(0, 500)),
+    updateJournalEntry,
+    deleteJournalEntry,
     page,
     setPage,
     chartViewMode,
