@@ -38,7 +38,7 @@ export const SYMBOL_MAPPINGS: SymbolMapping[] = [
       session: "RTH", category: "equity_future",
     },
     etf: "QQQ",
-    multiplier: 50.0, // QQQ ≈ Nasdaq / 40; MNQ tracks Nasdaq × 1
+    multiplier: 41.1, // QQQ ≈ Nasdaq / 41.1 (recalibrated 2026-04-17)
     yahooSymbol: "NQ=F",
     twelveDataSymbol: "QQQ", twelveDataNeedsScale: true,
   },
