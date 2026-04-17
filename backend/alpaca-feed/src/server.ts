@@ -160,6 +160,36 @@ app.post("/dispatch/traderspost", async (req, res) => {
   }
 });
 
+// On-demand morning brief — build + send to Telegram immediately.
+// Useful for testing, or for operators who want a fresh brief mid-session.
+app.post("/dispatch/brief", async (_req, res) => {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return res.status(503).json({
+      ok: false,
+      error: "Telegram not configured. Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in backend/alpaca-feed/.env and restart.",
+    });
+  }
+  try {
+    console.log("[/dispatch/brief] on-demand brief requested...");
+    const contexts = await buildSnapshot();
+    const brief = await buildMorningBrief(contexts);
+    const message = formatBriefMessage(brief);
+    const result = await sendTelegramMessage(message, {
+      botToken: TELEGRAM_BOT_TOKEN,
+      chatId: TELEGRAM_CHAT_ID,
+    });
+    console.log(`[/dispatch/brief] ${result.ok ? "sent ✓" : "FAILED"} (${message.length} chars)`);
+    res.status(result.ok ? 200 : 502).json({
+      ...result,
+      preview: message,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/dispatch/brief] error:", msg);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
+
 app.get("/market/contexts", async (_req, res) => {
   try {
     const now = Date.now();
