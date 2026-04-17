@@ -5,6 +5,7 @@ import { CompactValidationPanel } from "../panels/CompactValidationPanel";
 import { useWorkstation } from "../state/WorkstationContext";
 import { QuorumPanel } from "../panels/QuorumPanel";
 import { AgentDock } from "../panels/AgentDock";
+import { RecentTradesPanel } from "../panels/RecentTradesPanel";
 
 // Desk = primary trading page. Best trade · why · what to do.
 // Agent status shown as a compact bot dock at the bottom; the full
@@ -22,6 +23,7 @@ export function DeskPage() {
         </main>
         <aside className="column right">
           <CompactValidationPanel />
+          <RecentTradesPanel />
         </aside>
       </div>
       <AgentDock />

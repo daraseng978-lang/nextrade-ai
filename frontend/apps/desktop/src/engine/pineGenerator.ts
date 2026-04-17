@@ -1,9 +1,10 @@
 import type { SelectedSignal } from "./types";
+import type { PreMarketBrief } from "./preMarketChecklist";
 import { STRATEGIES } from "./strategies";
 
 // Produce a day-specific Pine v5 strategy implementation anchored to the
 // selected playbook, instrument, and session levels. No random strategies.
-export function generatePineScript(signal: SelectedSignal): string {
+export function generatePineScript(signal: SelectedSignal, brief?: PreMarketBrief): string {
   const meta = STRATEGIES[signal.candidate.strategy];
   const { candidate, context } = signal;
   const sideLabel = candidate.side === "long" ? "long" : "short";
@@ -11,12 +12,49 @@ export function generatePineScript(signal: SelectedSignal): string {
   const targetR = Number(meta.defaultTargetR.toFixed(2));
   const tick = context.instrument.tickSize;
 
+  const briefLevel = brief?.technicalLevels.find(
+    (tl) => tl.symbol === context.instrument.symbol,
+  );
+  const overnight = brief?.overnightSummary.find(
+    (o) => o.symbol === context.instrument.symbol,
+  );
+  const events = brief?.economicCalendar ?? [];
+  const readiness = brief?.mentalReadiness;
+
+  const reggieBlock = brief
+    ? `\n// ---- Reggie pre-market brief (${brief.date}) ----
+// Readiness: ${readiness?.sessionReadiness.toUpperCase() ?? "unknown"} · max trades: ${readiness?.suggestedMaxTrades ?? "—"}
+// Overnight bias: ${overnight?.sessionBias ?? "—"} · gap: ${overnight?.gapType.replace("_", " ") ?? "—"} ${overnight?.gapSize.toFixed(2) ?? ""} pts
+// Regime support: ${overnight?.regimeSupport ? "YES" : "NO"}
+// Events today: ${events.length === 0 ? "none" : events.map(e => `${e.time} ${e.event} [${e.impact}]`).join(" | ")}
+// Notes: ${readiness?.notes.join(" | ") ?? "—"}\n`
+    : "";
+
+  const overnightLines = briefLevel
+    ? `\n// ---- Overnight reference levels (Reggie) ----
+onH = ${briefLevel.overnightHigh.toFixed(4)}
+onL = ${briefLevel.overnightLow.toFixed(4)}\n`
+    : "";
+
+  const keyLevelPlots = briefLevel
+    ? `\n// ---- Key levels (Reggie · ${briefLevel.keyLevels.length} levels) ----\n` +
+      briefLevel.keyLevels
+        .map((lvl) => {
+          const col =
+            lvl.type === "resistance" ? "color.new(color.red, 60)" :
+            lvl.type === "support"    ? "color.new(color.green, 60)" :
+            "color.new(color.yellow, 40)";
+          return `hline(${lvl.price.toFixed(4)}, title="${lvl.label}", color=${col}, linestyle=hline.style_dashed)`;
+        })
+        .join("\n") + "\n"
+    : "";
+
   return `//@version=5
 // Nextrade AI — generated for ${context.instrument.symbol}
 // Playbook: ${meta.label} (${meta.family})
 // Regime: ${signal.context.regime}
 // Generated: ${signal.timestamp}
-strategy("Nextrade_${context.instrument.symbol}_${candidate.strategy}", overlay=true,
+${reggieBlock}strategy("Nextrade_${context.instrument.symbol}_${candidate.strategy}", overlay=true,
          calc_on_every_tick=false, pyramiding=0, process_orders_on_close=true,
          default_qty_type=strategy.fixed, default_qty_value=${signal.sizing.finalContracts})
 
@@ -27,7 +65,7 @@ pdH    = ${context.priorHigh}
 pdL    = ${context.priorLow}
 vwapP  = ${context.vwap}
 atrP   = ${context.atr}
-
+${overnightLines}
 // ---- Signal parameters ----
 entryPrice  = ${candidate.entry}
 stopPrice   = ${candidate.stop}
@@ -47,7 +85,7 @@ if (${sideLabel === "long" ? "longTrigger" : "shortTrigger"})
 plot(entryPrice, title="Entry", color=color.new(color.teal, 0))
 plot(stopPrice,  title="Stop",  color=color.new(color.red, 0))
 plot(targetPrice,title="Target",color=color.new(color.lime, 0))
-
+${keyLevelPlots}
 // ---- Alerts ----
 alertcondition(${sideLabel === "long" ? "longTrigger" : "shortTrigger"},
   title="NEXTRADE_${context.instrument.symbol}_${candidate.strategy}_${sideLabel.toUpperCase()}",

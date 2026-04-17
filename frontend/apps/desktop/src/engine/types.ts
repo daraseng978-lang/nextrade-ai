@@ -262,6 +262,7 @@ export type WorkstationPage =
   | "desk"
   | "charts"
   | "control_center"
+  | "quick_trade"
   | "pine_studio"
   | "journal"
   | "capital_lab"
@@ -284,7 +285,13 @@ export type EventKind =
   | "quorum_toggled"
   | "hard_block_triggered"
   | "chart_unavailable"
-  | "chart_retried";
+  | "chart_retried"
+  | "auto_pilot_armed"
+  | "auto_pilot_disarmed"
+  | "auto_pilot_skipped"
+  | "auto_pilot_executed"
+  | "manual_trade_sent"
+  | "manual_trade_failed";
 
 export interface EventEntry {
   id: string;

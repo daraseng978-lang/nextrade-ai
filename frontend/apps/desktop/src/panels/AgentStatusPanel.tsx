@@ -11,6 +11,7 @@ export function AgentStatusPanel() {
     killSwitch,
     quorumEnabled,
     journal,
+    preMarketBrief,
   } = useWorkstation();
 
   const agents = useMemo(
@@ -22,8 +23,9 @@ export function AgentStatusPanel() {
         killSwitch,
         quorumEnabled,
         journalCount: journal.length,
+        preMarketBrief,
       }),
-    [selected, propFirm, executionState, killSwitch, quorumEnabled, journal.length],
+    [selected, propFirm, executionState, killSwitch, quorumEnabled, journal.length, preMarketBrief],
   );
 
   const groups = useMemo(() => groupAgents(agents), [agents]);

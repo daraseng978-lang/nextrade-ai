@@ -13,6 +13,7 @@ import type {
   PropFirmControl,
   RouteStatus,
 } from "../engine/types";
+import type { PreMarketBrief } from "../engine/preMarketChecklist";
 
 // Control Center = supervision. Layout mirrors the NEXTRADE AI
 // Control Center mockup: 6-cell status rail + 3-column body.
@@ -31,6 +32,17 @@ export function ControlCenterPage() {
     routeHealth,
     contexts,
     account,
+    preMarketBrief,
+    autoPilot,
+    setAutoPilot,
+    autoTradeCount,
+    autoPilotMinScore,
+    lastAutoPilotDecision,
+    providerConfig,
+    feedStatus,
+    feedLastUpdate,
+    feedLatencyMs,
+    feedError,
   } = useWorkstation();
 
   const sym = selected.candidate.instrument.symbol;
@@ -52,8 +64,9 @@ export function ControlCenterPage() {
         killSwitch,
         quorumEnabled,
         journalCount: journal.length,
+        preMarketBrief,
       }),
-    [selected, propFirm, executionState, killSwitch, quorumEnabled, journal.length],
+    [selected, propFirm, executionState, killSwitch, quorumEnabled, journal.length, preMarketBrief],
   );
   const agentGroups = useMemo(() => groupAgents(agents), [agents]);
 
@@ -72,6 +85,11 @@ export function ControlCenterPage() {
         </RailCell>
         <RailCell label="Quorum" tone={quorumEnabled ? "on" : "off"}>
           {quorumEnabled ? "ON" : "OFF"}
+        </RailCell>
+        <RailCell label="Auto Pilot" tone={autoPilot ? "on" : "off"}>
+          {autoPilot
+            ? `ARMED · ${autoTradeCount}/${preMarketBrief.mentalReadiness.suggestedMaxTrades}`
+            : "OFF"}
         </RailCell>
         <RailCell label="Prop-Firm State" tone={propFirmTone(propFirm)}>
           {entryStateLabel(propFirm.entryState).toUpperCase()}
@@ -194,6 +212,29 @@ export function ControlCenterPage() {
             </div>
             <div className="cc-v2-pagehead-actions">
               <button
+                className={`cc-ghost-btn autopilot ${autoPilot ? "armed" : ""}`}
+                onClick={() => {
+                  if (!autoPilot) {
+                    const ok = confirm(
+                      `Arm Auto Pilot?\n\n` +
+                      `The system will approve + send trades automatically when:\n` +
+                      `  · adjusted score ≥ ${autoPilotMinScore.toFixed(2)}\n` +
+                      `  · kill switch is off\n` +
+                      `  · no hard block\n` +
+                      `  · prop-firm compliance is passing\n` +
+                      `  · Reggie readiness ≠ stand aside\n` +
+                      `  · daily auto-trade count < ${preMarketBrief.mentalReadiness.suggestedMaxTrades}\n\n` +
+                      `You can disarm at any time.`,
+                    );
+                    if (!ok) return;
+                  }
+                  setAutoPilot(!autoPilot);
+                }}
+                title={autoPilot ? "Disarm Auto Pilot" : "Arm Auto Pilot"}
+              >
+                {autoPilot ? "🤖 AUTO PILOT ARMED" : "🤖 ARM AUTO PILOT"}
+              </button>
+              <button
                 className={`cc-ghost-btn ${killSwitch ? "armed" : "danger"}`}
                 onClick={() => setKillSwitch(!killSwitch)}
               >
@@ -201,6 +242,28 @@ export function ControlCenterPage() {
               </button>
             </div>
           </div>
+
+          {autoPilot && (
+            <div className="cc-autopilot-strip">
+              <span className="cc-autopilot-dot" />
+              <span className="cc-autopilot-label">AUTO PILOT ARMED</span>
+              <span className="cc-autopilot-meta">
+                Score floor {autoPilotMinScore.toFixed(2)} · {autoTradeCount}/{preMarketBrief.mentalReadiness.suggestedMaxTrades} sent today
+              </span>
+              {lastAutoPilotDecision?.action === "skip" &&
+                !["autopilot_off", "already_processed", "not_draft"].includes(lastAutoPilotDecision.reasonCode) && (
+                  <span className="cc-autopilot-reason">
+                    Holding · {lastAutoPilotDecision.reason}
+                  </span>
+                )}
+              <button
+                className="cc-autopilot-disarm"
+                onClick={() => setAutoPilot(false)}
+              >
+                Disarm
+              </button>
+            </div>
+          )}
 
           <div className={`cc-state-banner ${banner.tone}`}>
             <div className={`cc-state-badge ${banner.tone}`}>
@@ -429,6 +492,8 @@ export function ControlCenterPage() {
 
         {/* ============ RIGHT ============ */}
         <aside className="cc-v2-right">
+          <PreMarketBriefSection brief={preMarketBrief} />
+
           <section className="cc-v2-section">
             <div className="cc-v2-section-head">Route Health</div>
             <div className="cc-v2-section-sub">
@@ -461,10 +526,30 @@ export function ControlCenterPage() {
           </section>
 
           <section className="cc-v2-section">
-            <div className="cc-v2-section-head">Market Data Feed</div>
-            <div className="cc-v2-section-sub">
-              Deterministic mock · engine/mockData.ts
+            <div className="cc-v2-section-head">
+              Market Data Feed
+              <span className={`cc-feed-status ${feedStatus}`}>
+                {feedStatus === "live" ? "LIVE" :
+                 feedStatus === "loading" ? "FETCHING" :
+                 feedStatus === "error" ? "ERROR" :
+                 "IDLE"}
+              </span>
             </div>
+            <div className="cc-v2-section-sub">
+              {providerConfig.kind === "mock"      ? "Static mock · engine/mockData.ts" :
+               providerConfig.kind === "live_mock" ? `Live mock · ${providerConfig.pollIntervalMs ?? 5000}ms poll · ±${((providerConfig.driftFactor ?? 0.0008) * 100).toFixed(2)}% drift` :
+               `REST · ${providerConfig.restUrl || "(not configured)"}`}
+              {feedLastUpdate && (
+                <>
+                  {" · "}
+                  last update {new Date(feedLastUpdate).toLocaleTimeString()}
+                  {feedLatencyMs !== null && <> ({feedLatencyMs}ms)</>}
+                </>
+              )}
+            </div>
+            {feedError && (
+              <div className="cc-feed-error">⚠ {feedError}</div>
+            )}
             {contexts.map((ctx) => (
               <FeedRow key={ctx.instrument.symbol} ctx={ctx} />
             ))}
@@ -918,6 +1003,60 @@ function eventCategory(kind: EventKind): {
         label: "CHART_RETRY",
         tag: "SYS",
       };
+    case "auto_pilot_armed":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "gate",
+        stream: "gate",
+        label: "AUTOPILOT_ARM",
+        tag: "AP",
+      };
+    case "auto_pilot_disarmed":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "gate",
+        stream: "gate",
+        label: "AUTOPILOT_DISARM",
+        tag: "AP",
+      };
+    case "auto_pilot_skipped":
+      return {
+        actor: "sys",
+        actorLabel: "System",
+        evt: "warn",
+        stream: "sys",
+        label: "AUTOPILOT_SKIP",
+        tag: "AP",
+      };
+    case "auto_pilot_executed":
+      return {
+        actor: "sys",
+        actorLabel: "System",
+        evt: "gate",
+        stream: "ok",
+        label: "AUTOPILOT_EXEC",
+        tag: "AP",
+      };
+    case "manual_trade_sent":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "created",
+        stream: "ok",
+        label: "MANUAL_SENT",
+        tag: "MT",
+      };
+    case "manual_trade_failed":
+      return {
+        actor: "op",
+        actorLabel: "Operator",
+        evt: "created",
+        stream: "gate",
+        label: "MANUAL_FAIL",
+        tag: "MT",
+      };
   }
 }
 
@@ -936,4 +1075,115 @@ function mockTickRate(symbol: string): string {
   const hash = [...symbol].reduce((acc, c) => acc + c.charCodeAt(0), 0);
   const n = 150 + (hash * 17) % 2300;
   return n >= 1000 ? `${(n / 1000).toFixed(2)}K t/m` : `${n} t/m`;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-Market Brief section — Reggie's morning research handoff to Strat
+// ---------------------------------------------------------------------------
+
+function PreMarketBriefSection({ brief }: { brief: PreMarketBrief }) {
+  const { mentalReadiness, economicCalendar, overnightSummary, sectorRotation, date } = brief;
+  const readinessColor =
+    mentalReadiness.sessionReadiness === "ready"      ? "var(--accent)" :
+    mentalReadiness.sessionReadiness === "caution"    ? "var(--warn)" :
+    "var(--danger)";
+
+  return (
+    <section className="cc-v2-section cc-brief">
+      <div className="cc-v2-section-head">
+        Pre-Market Brief
+        <span className="cc-brief-tag">REGGIE → STRAT</span>
+      </div>
+      <div className="cc-v2-section-sub">{date} · enriched before decision engine</div>
+
+      {/* Mental readiness */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">
+          Mental Readiness
+          <span className="cc-brief-readiness" style={{ color: readinessColor }}>
+            {mentalReadiness.sessionReadiness.replace("_", " ").toUpperCase()}
+          </span>
+        </div>
+        <div className="cc-brief-notes">
+          {mentalReadiness.notes.map((n, i) => (
+            <div key={i} className="cc-brief-note">· {n}</div>
+          ))}
+          <div className="cc-brief-note muted">
+            Suggested max trades: {mentalReadiness.suggestedMaxTrades}
+          </div>
+        </div>
+      </div>
+
+      {/* Economic calendar */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">Economic Calendar</div>
+        <table className="cc-brief-table">
+          <tbody>
+            {economicCalendar.map((ev, i) => (
+              <tr key={i}>
+                <td className="cc-brief-time">{ev.time}</td>
+                <td className="cc-brief-event">{ev.event}</td>
+                <td>
+                  <span className={`cc-brief-impact ${ev.impact}`}>{ev.impact.toUpperCase()}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Overnight session */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">Overnight Session</div>
+        <div className="cc-brief-overnight">
+          {overnightSummary.map((o) => (
+            <div key={o.symbol} className="cc-brief-overnight-row">
+              <span className="cc-brief-sym">{o.symbol}</span>
+              <span className={`cc-brief-bias ${o.sessionBias}`}>{o.sessionBias}</span>
+              <span className="cc-brief-gap muted">{o.gapType.replace("_", " ")} {o.gapSize.toFixed(1)}pt</span>
+              <span className={`cc-brief-support ${o.regimeSupport ? "ok" : "warn"}`}>
+                {o.regimeSupport ? "regime ✓" : "regime ✗"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Sector rotation */}
+      <div className="cc-brief-block">
+        <div className="cc-brief-blk-head">
+          Sector Rotation
+          <span className={`cc-brief-flow ${sectorRotation.capitalFlow}`}>
+            {sectorRotation.capitalFlow.replace("_", " ").toUpperCase()}
+          </span>
+        </div>
+        <div className="cc-brief-sectors">
+          {sectorRotation.leadingSectors.length > 0 && (
+            <div className="cc-brief-note">
+              Leading: {sectorRotation.leadingSectors.join(", ")}
+            </div>
+          )}
+          {sectorRotation.laggingSectors.length > 0 && (
+            <div className="cc-brief-note warn">
+              Lagging: {sectorRotation.laggingSectors.join(", ")}
+            </div>
+          )}
+          <div className="cc-brief-rel-strength">
+            {sectorRotation.relativeStrength.slice(0, 4).map((r) => (
+              <div key={r.symbol} className="cc-brief-rs-row">
+                <span className="cc-brief-sym">{r.symbol}</span>
+                <div className="cc-brief-rs-bar">
+                  <div
+                    className="cc-brief-rs-fill"
+                    style={{ width: `${r.relScore * 100}%` }}
+                  />
+                </div>
+                <span className="cc-brief-rs-val">{r.relScore.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }

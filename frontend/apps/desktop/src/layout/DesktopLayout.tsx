@@ -3,6 +3,7 @@ import { PAGES } from "../engine/pages";
 import { DeskPage } from "../pages/DeskPage";
 import { ChartsPage } from "../pages/ChartsPage";
 import { ControlCenterPage } from "../pages/ControlCenterPage";
+import { QuickTradePage } from "../pages/QuickTradePage";
 import { PineStudioPage } from "../pages/PineStudioPage";
 import { JournalPage } from "../pages/JournalPage";
 import { CapitalLabPage } from "../pages/CapitalLabPage";
@@ -15,6 +16,7 @@ export function DesktopLayout() {
     page === "desk" ? <DeskPage /> :
     page === "charts" ? <ChartsPage /> :
     page === "control_center" ? <ControlCenterPage /> :
+    page === "quick_trade" ? <QuickTradePage /> :
     page === "pine_studio" ? <PineStudioPage /> :
     page === "journal" ? <JournalPage /> :
     page === "capital_lab" ? <CapitalLabPage /> :

@@ -3,6 +3,7 @@ import { decide } from "../engine/decisionEngine";
 import { DEFAULT_ACCOUNT } from "../engine/sizing";
 import { mockContexts } from "../engine/mockData";
 import { generatePineScript, buildAlertPayload } from "../engine/pineGenerator";
+import { buildPreMarketBrief, enrichContextsWithBrief } from "../engine/preMarketChecklist";
 
 describe("pine generator", () => {
   const ctxs = mockContexts();
@@ -39,5 +40,43 @@ describe("pine generator", () => {
     const hi = Math.max(entry, tp2);
     expect(tp1).toBeGreaterThanOrEqual(lo);
     expect(tp1).toBeLessThanOrEqual(hi);
+  });
+
+  it("injects Reggie brief block when brief is supplied", () => {
+    const brief = buildPreMarketBrief(ctxs, false);
+    const enriched = enrichContextsWithBrief(ctxs, brief);
+    const sig = decide(enriched[0], DEFAULT_ACCOUNT);
+    const script = generatePineScript(sig, brief);
+    expect(script).toContain("Reggie pre-market brief");
+    expect(script).toContain("Readiness:");
+    expect(script).toContain("Overnight bias:");
+  });
+
+  it("emits hline() calls for each key level when brief is supplied", () => {
+    const brief = buildPreMarketBrief(ctxs, false);
+    const enriched = enrichContextsWithBrief(ctxs, brief);
+    const sig = decide(enriched[0], DEFAULT_ACCOUNT);
+    const script = generatePineScript(sig, brief);
+    expect(script).toContain("hline(");
+    expect(script).toContain("Key levels (Reggie");
+    const hlineCount = (script.match(/hline\(/g) ?? []).length;
+    expect(hlineCount).toBe(7);
+  });
+
+  it("emits overnight reference levels when brief is supplied", () => {
+    const brief = buildPreMarketBrief(ctxs, false);
+    const enriched = enrichContextsWithBrief(ctxs, brief);
+    const sig = decide(enriched[0], DEFAULT_ACCOUNT);
+    const script = generatePineScript(sig, brief);
+    expect(script).toContain("onH =");
+    expect(script).toContain("onL =");
+  });
+
+  it("generates without brief (backward-compatible, no hlines)", () => {
+    const sig = decide(ctxs[0], DEFAULT_ACCOUNT);
+    const script = generatePineScript(sig);
+    expect(script).toContain("@version=5");
+    expect(script).not.toContain("hline(");
+    expect(script).not.toContain("Reggie");
   });
 });
