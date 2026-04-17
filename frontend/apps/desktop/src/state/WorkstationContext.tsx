@@ -148,6 +148,10 @@ export type FeedStatus = "idle" | "loading" | "live" | "error";
 const JOURNAL_STORAGE_KEY = "nextrade.journal.v1";
 const PROVIDER_CONFIG_STORAGE_KEY = "nextrade.marketDataProvider.v1";
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function loadProviderConfig(): MarketDataProviderConfig {
   if (typeof window === "undefined") return DEFAULT_PROVIDER_CONFIG;
   try {
@@ -716,9 +720,32 @@ export function WorkstationProvider({ children }: PropsWithChildren) {
 
   // Send a synthetic test payload through the dispatch pipeline so the
   // user can verify their TradersPost webhook before arming Auto Pilot.
+  //
+  // The test ALWAYS hits the backend (even when live dispatch is
+  // disabled in Settings) so the operator can prove the pipe works
+  // end-to-end. The payload is forced to a valid shape (quantity ≥ 1,
+  // well-formed levels) so we never fail validation because the current
+  // live signal happens to be watch-only or hard-blocked.
   const testDispatch = useCallback(async (): Promise<DispatchResult> => {
-    const tpPayload = formatExecution(selected).tradersPost;
-    const result = await dispatchToTradersPost(tpPayload, dispatchConfig);
+    const base = formatExecution(selected).tradersPost;
+    const c = selected.candidate;
+    const entry = c.entry > 0 ? c.entry : 100;
+    const stopDistance = Math.abs(c.entry - c.stop) > 0 ? Math.abs(c.entry - c.stop) : 1;
+    const side: "buy" | "sell" = c.side === "short" ? "sell" : "buy";
+    const sign = side === "buy" ? 1 : -1;
+    const syntheticPayload = {
+      ...base,
+      action: side,
+      orderType: "limit" as const,
+      price: round2(entry),
+      quantity: 1,
+      stopLoss: { type: "stop" as const, stopPrice: round2(entry - sign * stopDistance) },
+      takeProfit: { limitPrice: round2(entry + sign * stopDistance * 2) },
+      sentiment: side === "buy" ? ("bullish" as const) : ("bearish" as const),
+    };
+    // Always hit the backend — the `enabled` flag only gates real
+    // production sends, not test probes.
+    const result = await dispatchToTradersPost(syntheticPayload, { ...dispatchConfig, enabled: true });
     setLastDispatchResult(result);
     return result;
   }, [selected, dispatchConfig]);
