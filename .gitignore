@@ -10,3 +10,8 @@ dist/
 .idea/
 coverage/
 *.tsbuildinfo
+
+CMD.txt
+*.env
+*.env.*
+ - Copy.env
